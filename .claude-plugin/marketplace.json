@@ -1,0 +1,20 @@
+{
+  "name": "sombrilla",
+  "description": "Sombrilla's own flavor of the superpowers workflow skills.",
+  "owner": {
+    "name": "Borja Aranda",
+    "email": "0xfbac@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "sombrilla",
+      "description": "Sombrilla flavor: brainstorming + writing-plans with completeness/walk-tagging passes, plus review-lens.",
+      "version": "1.0.0",
+      "source": "./",
+      "author": {
+        "name": "Borja Aranda",
+        "email": "0xfbac@gmail.com"
+      }
+    }
+  ]
+}
