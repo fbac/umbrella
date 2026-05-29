@@ -1,13 +1,13 @@
 {
-  "name": "sombrilla",
-  "description": "Sombrilla flavor of the superpowers workflow skills: brainstorming + writing-plans with a persona×surface×affordance completeness pass and browser-walk-only tagging, plus a review-lens for composed-surface review. Score != ship.",
+  "name": "umbrella",
+  "description": "Umbrella flavor of the superpowers workflow skills: brainstorming + writing-plans with a persona×surface×affordance completeness pass and browser-walk-only tagging, plus a review-lens for composed-surface review. Score != ship.",
   "version": "1.0.0",
   "author": {
     "name": "Borja Aranda",
     "email": "0xfbac@gmail.com"
   },
-  "homepage": "https://github.com/fbac/sombrilla-plugin",
-  "repository": "https://github.com/fbac/sombrilla-plugin",
+  "homepage": "https://github.com/fbac/umbrella",
+  "repository": "https://github.com/fbac/umbrella",
   "license": "MIT",
   "keywords": [
     "skills",

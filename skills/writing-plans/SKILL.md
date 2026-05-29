@@ -1,9 +1,9 @@
 ---
 name: writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code. Sombrilla flavor — use this instead of superpowers:writing-plans on this project.
+description: Use when you have a spec or requirements for a multi-step task, before touching code. Umbrella flavor — use this instead of superpowers:writing-plans.
 ---
 
-# Writing Plans (Sombrilla flavor)
+# Writing Plans (Umbrella flavor)
 
 ## Overview
 
@@ -11,9 +11,9 @@ Write comprehensive implementation plans assuming the engineer has zero context 
 
 Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
 
-> **Sombrilla fork of `superpowers:writing-plans`.** Adds **walk-tagging** (every task marked `static-verifiable` or `browser-walk-only`) plus a consolidated **Browser-Walk Inventory**, and pins plan output to `docs/plans/`. Self-contained — does not delegate to the upstream skill.
+> **Umbrella fork of `superpowers:writing-plans`.** Adds **walk-tagging** (every task marked `static-verifiable` or `browser-walk-only`) plus a consolidated **Browser-Walk Inventory**, and pins plan output to `docs/plans/`. Self-contained — does not delegate to the upstream skill.
 
-**Announce at start:** "I'm using the sombrilla:writing-plans skill to create the implementation plan."
+**Announce at start:** "I'm using the umbrella:writing-plans skill to create the implementation plan."
 
 **Context:** If working in an isolated worktree, it should have been created via the `superpowers:using-git-worktrees` skill at execution time.
 
@@ -44,13 +44,13 @@ This structure informs the task decomposition. Each task should produce self-con
 - "Run the tests and make sure they pass" - step
 - "Commit" - step
 
-## Walk-Tagging (Sombrilla)
+## Walk-Tagging (Umbrella)
 
-**Why this exists:** Static review and unit/pgTAP tests cannot see render/redirect timing, composed-surface UX, or motion/feel. Those are confirmable ONLY in a running browser. If the plan doesn't name them, a feature gets called "done" on a green score while a real issue (e.g. a redirect flash, two redundant adjacent CTAs) ships unseen. Especially critical when Playwright can't run locally — then the founder browser walk is the *only* net.
+**Why this exists:** Static review and unit/pgTAP tests cannot see render/redirect timing, composed-surface UX, or motion/feel. Those are confirmable ONLY in a running browser. If the plan doesn't name them, a feature gets called "done" on a green score while a real issue (e.g. a redirect flash, two redundant adjacent CTAs) ships unseen. Especially critical when Playwright can't run locally — then the human browser walk is the *only* net.
 
 - **Tag every task** `static-verifiable` or `browser-walk-only` in its header. A task is `browser-walk-only` if its acceptance depends on: redirect/render/paint timing (e.g. interaction with `loading.tsx`/streaming/Suspense), the *assembled* appearance of a shared surface per persona, motion/animation, or any "feel" criterion.
 - Carry the spec's walk-only tags forward — every spec requirement marked walk-only in brainstorming MUST map to a `browser-walk-only` task here.
-- **Browser-Walk Inventory:** add a final section to the plan, `## Browser-Walk Inventory`, listing every `browser-walk-only` item as a numbered walk case in plain prose (account + URL + viewport + action + pass-criterion). This is the script the founder/human executes. Each case is full clear sentences, not shorthand.
+- **Browser-Walk Inventory:** add a final section to the plan, `## Browser-Walk Inventory`, listing every `browser-walk-only` item as a numbered walk case in plain prose (account + URL + viewport + action + pass-criterion). This is the script the human executes. Each case is full clear sentences, not shorthand.
 - **Meta rule:** score ≠ ship. A >90 plan/branch review is necessary, not sufficient. The browser walk is the mandatory gate for the `browser-walk-only` class; never report such a feature done on score alone.
 
 ## Plan Document Header
@@ -60,7 +60,7 @@ This structure informs the task decomposition. Each task should produce self-con
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. During per-task and final review, ALSO apply sombrilla:review-lens (composed-surface-per-persona + walk-only flagging).
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. During per-task and final review, ALSO apply umbrella:review-lens (composed-surface-per-persona + walk-only flagging).
 
 **Goal:** [One sentence describing what this builds]
 
@@ -140,11 +140,11 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 **3. Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
 
-**4. Walk-tag coverage (Sombrilla):** Is every task tagged `static-verifiable` or `browser-walk-only`? Does every spec walk-only requirement map to a `browser-walk-only` task? Is the `## Browser-Walk Inventory` present with one plain-prose case per walk-only item?
+**4. Walk-tag coverage (Umbrella):** Is every task tagged `static-verifiable` or `browser-walk-only`? Does every spec walk-only requirement map to a `browser-walk-only` task? Is the `## Browser-Walk Inventory` present with one plain-prose case per walk-only item?
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
-## Adversarial Plan Review (Sombrilla gate)
+## Adversarial Plan Review (Umbrella gate)
 
 Dispatch a fresh subagent to adversarially review the plan using `skills/writing-plans/plan-document-reviewer-prompt.md`. Iterate until it scores **>90** before execution handoff.
 
@@ -162,10 +162,10 @@ After saving the plan, offer execution choice:
 
 **If Subagent-Driven chosen:**
 - **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
-- Fresh subagent per task + two-stage review; apply `sombrilla:review-lens` in the review stage
+- Fresh subagent per task + two-stage review; apply `umbrella:review-lens` in the review stage
 
 **If Inline Execution chosen:**
 - **REQUIRED SUB-SKILL:** Use superpowers:executing-plans
 - Batch execution with checkpoints for review
 
-**Always, after all tasks:** the `## Browser-Walk Inventory` is the mandatory founder/human gate for `browser-walk-only` items. Do not declare the feature done on green tests + >90 review alone.
+**Always, after all tasks:** the `## Browser-Walk Inventory` is the mandatory human gate for `browser-walk-only` items. Do not declare the feature done on green tests + >90 review alone.

@@ -1,15 +1,15 @@
 ---
 name: brainstorming
-description: "You MUST use this before any creative work — creating features, building components, adding functionality, or modifying behavior, before any implementation action. Sombrilla flavor: use this instead of superpowers:brainstorming on this project."
+description: "You MUST use this before any creative work — creating features, building components, adding functionality, or modifying behavior, before any implementation action. Umbrella flavor: use this instead of superpowers:brainstorming."
 ---
 
-# Brainstorming Ideas Into Designs (Sombrilla flavor)
+# Brainstorming Ideas Into Designs (Umbrella flavor)
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
 Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
 
-> **Sombrilla fork of `superpowers:brainstorming`.** Adds a mandatory **Completeness Pass** (persona × surface × affordance), an **adversarial spec-review gate** (iterate to >90 before plan), and pins spec output to `docs/specs/`. Everything else mirrors the upstream skill. Self-contained — does not delegate to the upstream skill.
+> **Umbrella fork of `superpowers:brainstorming`.** Adds a mandatory **Completeness Pass** (persona × surface × affordance), an **adversarial spec-review gate** (iterate to >90 before plan), and pins spec output to `docs/specs/`. Everything else mirrors the upstream skill. Self-contained — does not delegate to the upstream skill.
 
 <HARD-GATE>
 Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
@@ -33,7 +33,7 @@ You MUST create a task for each of these items and complete them in order:
 8. **Spec self-review** — inline check for placeholders, contradictions, ambiguity, scope, AND the completeness/composition checks (see below)
 9. **Adversarial spec review** — dispatch a fresh subagent reviewer (see `skills/brainstorming/spec-document-reviewer-prompt.md`); iterate the spec until it scores **>90** before proceeding
 10. **User reviews written spec** — ask user to review the spec file before proceeding
-11. **Transition to implementation** — invoke `sombrilla:writing-plans` to create the implementation plan
+11. **Transition to implementation** — invoke `umbrella:writing-plans` to create the implementation plan
 
 ## Process Flow
 
@@ -51,7 +51,7 @@ digraph brainstorming {
     "Spec self-review\n(+ composition checks)" [shape=box];
     "Adversarial review >90?" [shape=diamond];
     "User reviews spec?" [shape=diamond];
-    "Invoke sombrilla:writing-plans" [shape=doublecircle];
+    "Invoke umbrella:writing-plans" [shape=doublecircle];
 
     "Explore project context" -> "Visual questions ahead?";
     "Visual questions ahead?" -> "Offer Visual Companion\n(own message, no other content)" [label="yes"];
@@ -68,11 +68,11 @@ digraph brainstorming {
     "Adversarial review >90?" -> "Write design doc" [label="no, iterate"];
     "Adversarial review >90?" -> "User reviews spec?" [label="yes"];
     "User reviews spec?" -> "Write design doc" [label="changes requested"];
-    "User reviews spec?" -> "Invoke sombrilla:writing-plans" [label="approved"];
+    "User reviews spec?" -> "Invoke umbrella:writing-plans" [label="approved"];
 }
 ```
 
-**The terminal state is invoking `sombrilla:writing-plans`.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill.
+**The terminal state is invoking `umbrella:writing-plans`.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill.
 
 ## The Process
 
@@ -152,7 +152,7 @@ After writing the spec document, look at it with fresh eyes:
 
 Fix any issues inline.
 
-**Adversarial Spec Review (Sombrilla gate):**
+**Adversarial Spec Review (Umbrella gate):**
 Dispatch a fresh subagent to adversarially review the spec using `skills/brainstorming/spec-document-reviewer-prompt.md`. Iterate the spec until it scores **>90**. A >90 score is necessary but NOT sufficient (it grades internal quality, not completeness or runtime feel) — the completeness pass and walk tagging above are what make the score meaningful.
 
 **User Review Gate:**
@@ -164,8 +164,8 @@ Wait for the user's response. If they request changes, make them and re-run the 
 
 **Implementation:**
 
-- Invoke `sombrilla:writing-plans` to create a detailed implementation plan
-- Do NOT invoke any other skill. `sombrilla:writing-plans` is the next step.
+- Invoke `umbrella:writing-plans` to create a detailed implementation plan
+- Do NOT invoke any other skill. `umbrella:writing-plans` is the next step.
 
 ## Key Principles
 
@@ -175,7 +175,7 @@ Wait for the user's response. If they request changes, make them and re-run the 
 - **Explore alternatives** - Always propose 2-3 approaches before settling
 - **Incremental validation** - Present design, get approval before moving on
 - **Be flexible** - Go back and clarify when something doesn't make sense
-- **Ask everything (Sombrilla):** the spec phase owns completeness; review only checks conformance to scope, so an unasked question is never caught downstream.
+- **Ask everything (Umbrella):** the spec phase owns completeness; review only checks conformance to scope, so an unasked question is never caught downstream.
 
 ## Visual Companion
 

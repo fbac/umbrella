@@ -3,7 +3,7 @@ name: review-lens
 description: Use when reviewing a diff, branch, or PR, before declaring work done, requesting code review, or merging — especially changes touching shared surfaces (headers, nav, shells) or auth/route gating, or before finishing a development branch.
 ---
 
-# Review Lens (Sombrilla)
+# Review Lens (Umbrella)
 
 ## Overview
 
@@ -11,7 +11,7 @@ A standard code review and a high adversarial score grade **internal quality** �
 
 Apply this lens **in addition to** normal code review (e.g. `superpowers:requesting-code-review`) — during per-task review and again on the final branch.
 
-**Origin:** W1-D-DASHBOARD scored spec 91 / plan 95 / branch 96, yet the founder browser walk found three non-correctness issues none of the reviews reached: a `loading.tsx` render-timing flash, two redundant adjacent operator CTAs, and no logout path for a newly-admitted authed persona. All invisible to static review.
+**Origin:** W1-D-DASHBOARD scored spec 91 / plan 95 / branch 96, yet the human browser walk found three non-correctness issues none of the reviews reached: a `loading.tsx` render-timing flash, two redundant adjacent operator CTAs, and no logout path for a newly-admitted authed persona. All invisible to static review.
 
 ## When to Use
 
@@ -29,7 +29,7 @@ Apply this lens **in addition to** normal code review (e.g. `superpowers:request
 
 ## Browser-Walk-Only Flagging
 
-Any acceptance criterion that depends on **redirect/render/paint timing** (interaction with `loading.tsx`, streaming, Suspense), **assembled appearance**, or **motion/feel** is `browser-walk-only`. Static review and unit/pgTAP tests cannot confirm it. List every such item explicitly and route it to the human/founder browser walk. Never sign off these on code-reading alone — especially when Playwright can't run locally.
+Any acceptance criterion that depends on **redirect/render/paint timing** (interaction with `loading.tsx`, streaming, Suspense), **assembled appearance**, or **motion/feel** is `browser-walk-only`. Static review and unit/pgTAP tests cannot confirm it. List every such item explicitly and route it to the human browser walk. Never sign off these on code-reading alone — especially when Playwright can't run locally.
 
 ## Score != Ship
 
