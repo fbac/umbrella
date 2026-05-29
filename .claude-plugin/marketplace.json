@@ -1,6 +1,6 @@
 {
   "name": "umbrella",
-  "description": "Umbrella's own flavor of the superpowers workflow skills.",
+  "description": "Umbrella — standalone Claude Code workflow + skills library (forked from superpowers).",
   "owner": {
     "name": "Borja Aranda",
     "email": "0xfbac@gmail.com"
@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "umbrella",
-      "description": "Umbrella flavor: brainstorming + writing-plans with completeness/walk-tagging passes, plus review-lens.",
+      "description": "Standalone workflow + skills library: TDD, debugging, planning, brainstorming, review-lens. Score != ship.",
       "version": "1.0.0",
       "source": "./",
       "author": {

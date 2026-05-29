@@ -9,14 +9,14 @@ description: Use when reviewing a diff, branch, or PR, before declaring work don
 
 A standard code review and a high adversarial score grade **internal quality** — correctness, security, spec-coverage, consistency. They do NOT measure **composed-surface UX**, **cross-feature interaction**, or **runtime feel**. Those are orthogonal axes that diff-level, static review structurally cannot reach. This lens adds the three checks that catch the class of issues a >90 score misses, and enforces that a score is necessary but never sufficient.
 
-Apply this lens **in addition to** normal code review (e.g. `superpowers:requesting-code-review`) — during per-task review and again on the final branch.
+Apply this lens **in addition to** normal code review (e.g. `umbrella:requesting-code-review`) — during per-task review and again on the final branch.
 
 **Origin:** W1-D-DASHBOARD scored spec 91 / plan 95 / branch 96, yet the human browser walk found three non-correctness issues none of the reviews reached: a `loading.tsx` render-timing flash, two redundant adjacent operator CTAs, and no logout path for a newly-admitted authed persona. All invisible to static review.
 
 ## When to Use
 
 - Reviewing any diff/branch/PR before calling it done or merging.
-- Right before `superpowers:finishing-a-development-branch`.
+- Right before `umbrella:finishing-a-development-branch`.
 - Any change that touches a shared surface (header, nav, shell, layout) or auth/route gating.
 
 ## The Three Checks (do all three, by reading the assembled result — not the diff)

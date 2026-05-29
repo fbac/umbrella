@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "You MUST use this before any creative work — creating features, building components, adding functionality, or modifying behavior, before any implementation action. Umbrella flavor: use this instead of superpowers:brainstorming."
+description: "You MUST use this before any creative work — creating features, building components, adding functionality, or modifying behavior, before any implementation action. Umbrella flavor: use this instead of umbrella:brainstorming."
 ---
 
 # Brainstorming Ideas Into Designs (Umbrella flavor)
@@ -9,7 +9,7 @@ Help turn ideas into fully formed designs and specs through natural collaborativ
 
 Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
 
-> **Umbrella fork of `superpowers:brainstorming`.** Adds a mandatory **Completeness Pass** (persona × surface × affordance), an **adversarial spec-review gate** (iterate to >90 before plan), and pins spec output to `docs/specs/`. Everything else mirrors the upstream skill. Self-contained — does not delegate to the upstream skill.
+> **Umbrella standalone skill** (originally forked from superpowers:brainstorming). Beyond the base flow it adds a mandatory **Completeness Pass** (persona × surface × affordance), an **adversarial spec-review gate** (iterate to >90 before plan), and pins spec output to `docs/specs/`.
 
 <HARD-GATE>
 Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.

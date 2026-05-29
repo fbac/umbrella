@@ -1,6 +1,6 @@
 ---
 name: writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code. Umbrella flavor — use this instead of superpowers:writing-plans.
+description: Use when you have a spec or requirements for a multi-step task, before touching code. Umbrella flavor — use this instead of umbrella:writing-plans.
 ---
 
 # Writing Plans (Umbrella flavor)
@@ -11,11 +11,11 @@ Write comprehensive implementation plans assuming the engineer has zero context 
 
 Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
 
-> **Umbrella fork of `superpowers:writing-plans`.** Adds **walk-tagging** (every task marked `static-verifiable` or `browser-walk-only`) plus a consolidated **Browser-Walk Inventory**, and pins plan output to `docs/plans/`. Self-contained — does not delegate to the upstream skill.
+> **Umbrella standalone skill** (originally forked from superpowers:writing-plans). Beyond the base flow it adds **walk-tagging** (every task marked `static-verifiable` or `browser-walk-only`) plus a consolidated **Browser-Walk Inventory**, and pins plan output to `docs/plans/`.
 
 **Announce at start:** "I'm using the umbrella:writing-plans skill to create the implementation plan."
 
-**Context:** If working in an isolated worktree, it should have been created via the `superpowers:using-git-worktrees` skill at execution time.
+**Context:** If working in an isolated worktree, it should have been created via the `umbrella:using-git-worktrees` skill at execution time.
 
 **Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 - (User preferences for plan location override this default)
@@ -60,7 +60,7 @@ This structure informs the task decomposition. Each task should produce self-con
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. During per-task and final review, ALSO apply umbrella:review-lens (composed-surface-per-persona + walk-only flagging).
+> **For agentic workers:** REQUIRED SUB-SKILL: Use umbrella:subagent-driven-development (recommended) or umbrella:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. During per-task and final review, ALSO apply umbrella:review-lens (composed-surface-per-persona + walk-only flagging).
 
 **Goal:** [One sentence describing what this builds]
 
@@ -161,11 +161,11 @@ After saving the plan, offer execution choice:
 **Which approach?"**
 
 **If Subagent-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
+- **REQUIRED SUB-SKILL:** Use umbrella:subagent-driven-development
 - Fresh subagent per task + two-stage review; apply `umbrella:review-lens` in the review stage
 
 **If Inline Execution chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers:executing-plans
+- **REQUIRED SUB-SKILL:** Use umbrella:executing-plans
 - Batch execution with checkpoints for review
 
 **Always, after all tasks:** the `## Browser-Walk Inventory` is the mandatory human gate for `browser-walk-only` items. Do not declare the feature done on green tests + >90 review alone.

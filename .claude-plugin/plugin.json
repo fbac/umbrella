@@ -1,6 +1,6 @@
 {
   "name": "umbrella",
-  "description": "Umbrella flavor of the superpowers workflow skills: brainstorming + writing-plans with a persona×surface×affordance completeness pass and browser-walk-only tagging, plus a review-lens for composed-surface review. Score != ship.",
+  "description": "Standalone Claude Code workflow + skills library (TDD, debugging, planning, brainstorming, collaboration), forked from superpowers and extended with a persona×surface×affordance completeness pass, browser-walk-only tagging, and a review-lens. Score != ship.",
   "version": "1.0.0",
   "author": {
     "name": "Borja Aranda",
