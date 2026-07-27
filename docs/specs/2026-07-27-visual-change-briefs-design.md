@@ -168,7 +168,7 @@ sequenceDiagram
   A->>H: report path
   H->>F: open file://
   F->>F: decode, parse with HTML/images/links neutralised
-  F->>F: compare rendered heading count against source
+  F->>F: assert the sentinel Plan heading survived parsing
   F->>F: build index from h1/h2/h3, scrollspy
   F->>F: build DAG from declared Depends on
   F->>F: mermaid render light pass, then dark pass
@@ -255,6 +255,8 @@ The brief is opened by a persona with no repo and no context — often from an e
 
    Permitted relative forms, exhaustively: bare (`BLOCKS.md`), dot-relative (`./x`, `../x`), root-relative (`/x`), and bare fragments (`#section`). **Protocol-relative `//host/x` is rejected** despite having no scheme — it is not document-relative, it resolves to `file://host/x`, and on Windows that is a UNC path, so a click attempts an SMB connection to an attacker-chosen host. Classic NTLM-leak vector.
 
+   **Backslashes are normalised to `/` before that check.** For special schemes, and `file:` is one, the WHATWG URL parser treats `\` as `/`, so `/\host/x` is an equivalent spelling of `//host/x` and reaches the same remote host. Checking only the literal `//` spelling leaves the bypass open — verified: `[g](/\evil.example.com/share)` produced an anchor with `host === "evil.example.com"`.
+
 `mermaid.initialize({ securityLevel: "strict" })` remains set. The honest guarantee is **zero network requests on load** — an `http(s)` link the reader deliberately clicks will still navigate, which is the intended behavior.
 
 ### File structure
@@ -284,7 +286,7 @@ render.sh SPEC.md [PLAN.md] -o OUT.html [-t TEMPLATE.html] [-V VENDOR_DIR]
 
 - **Pre-conditions.** Every placeholder must be present in the template **exactly once**, and `__VENDOR_JS__` / `__BRIEF_B64__` must each be alone on their line. Checking only that no placeholder *survives* passes a template with one deleted, yielding a blank brief and exit 0 — in one case with nothing in the browser console to diagnose it.
 - **Payload assembly.** `SPEC.md`, then a synthesized `## Plan`, then either the plan body or the pending callout. Synthesizing in *both* paths keeps the gates structurally identical; otherwise plan tasks nest under whichever `##` the spec ended on and the Plan group vanishes at the second gate.
-- **H1 handling.** The first line of each document is dropped if it is an H1 — the spec's title is already the masthead and the plan's would be a second H1 mid-document. The strip is **first-line-only**: a "first `^# ` anywhere" rule is fence-unaware and silently deletes a `# comment` line from a bash fence in a plan that has no H1. Any surviving H1 further down is indexed by the page, so it stays reachable.
+- **H1 handling.** The first line of each document is dropped if it is an H1 — the spec's title is already the masthead and the plan's would be a second H1 mid-document. The strip is **first-line-only**: a "first `^# ` anywhere" rule is fence-unaware and silently deletes a `# comment` line from a bash fence in a plan that has no H1. Any surviving H1 further down is flattened to `####` (see below), deliberately placing it outside the index's h2/h3 range.
 - **Block scanner (`scan.awk`), deliberately minimal.** It does **not** re-implement CommonMark. Four review rounds established that it cannot: every attempt to make a source-side heading count agree with `marked`'s parse produced a new divergence — nested fences, indented code, HTML blocks, backtick info strings — and each divergence is either a false truncation alarm or silent content loss. The scanner now does only what must happen *before* parsing: neutralising a dangling comment, flattening stray H1s, and reporting structural defects. Truncation detection moved to the page (see Structural integrity).
 - **Dangling-comment detection is line-start-only and order-aware.** Only a comment opening at the start of a line can form a CommonMark HTML block and swallow the document; a `<!--` mid-paragraph is inline HTML and harmless. Tracking inline occurrences false-alarms on any document that merely discusses comments — this spec does. And order matters, not totals: a stray `-->` earlier in the text (prose about mermaid arrows) balances a count and disables escaping while a real dangling opener still swallows the tail.
 - **Escaping preserves indentation.** awk's `sub()` replaces the whole match and has no backreferences, so a `^([ \t]*)<!--` pattern *deletes* the captured indent, dropping a comment out of a list-item fence and breaking it. Match the line, substitute only `<!--`.
@@ -322,7 +324,7 @@ render.sh SPEC.md [PLAN.md] -o OUT.html [-t TEMPLATE.html] [-V VENDOR_DIR]
     .catch(function(err){ /* red error box, unless a prior pass succeeded */ });
   ```
 
-- **Index** — built from `h2`/`h3` only, since `render.sh` guarantees a single hierarchy. Clean heading text is captured into `data-toc` *before* badges and progress bars mutate the DOM, otherwise entries read `Task 1: Render scriptstatic-verifiable`. `h2` opens a collapsible group; `h3` nests beneath. `IntersectionObserver` scrollspy.
+- **Index** — built from `h2`/`h3` only, since `render.sh` guarantees a single hierarchy. **Task headings attach to the Plan group by region, not by heading adjacency.** Nesting h3s under "whichever h2 came last" is a latent defect that surfaced in five consecutive review rounds through four different triggers — an unnested h3, a stray h1, a demoted h2, and a setext h2 manufactured from YAML front matter. Each round removed one trigger and left the mechanism, so the next round found another. The sentinel already identifies the plan region exactly; any `### Task N` positioned after it joins the Plan group regardless of what headings intervene. Clean heading text is captured into `data-toc` *before* badges and progress bars mutate the DOM, otherwise entries read `Task 1: Render scriptstatic-verifiable`. `h2` opens a collapsible group; `h3` nests beneath. `IntersectionObserver` scrollspy.
 - **Mermaid extraction** — post-processes `pre > code.language-mermaid` in the DOM rather than overriding `marked`'s code renderer, which keeps the template working across `marked` major versions.
 - **Task dependency graph** — parses `### Task N: Title` headings and inserts a `flowchart LR` **immediately before the first task heading**, with `browser-walk-only` tasks class-colored. Anchoring by heading *name* is positional guesswork that relocates rather than fixes: "first `## Plan`" put the graph a document above the tasks when the spec had its own Plan section, and "last `## Plan`" then put it a document below them when the plan had one. The tasks are what the graph describes, so it attaches to them directly. The `**Depends on:**` match is anchored to the start of a paragraph, takes the first declaration per task, and honours `none`. A loose search over every node in the section harvests the string from prose and code fences alike — a step reading ``add `Depends on: Task 3` to the template`` fabricated a real edge. Edges referencing unknown tasks are dropped; fewer than two tasks renders nothing. Cycle detection is delegated to the plan reviewer.
 - **Print** — `@media print { :root, :root[data-theme="dark"] { … } }`. Matching the dark selector is mandatory.
@@ -376,7 +378,7 @@ Both prompts gain an explicit `**Score:** <integer 0-100>` field. Both SKILL.md 
 | Template missing a placeholder | presence check before substitution | stderr naming the placeholder, exit 1, no output file |
 | Template names a placeholder twice | occurrence count must be 1 | stderr message, exit 1 |
 | Output not larger than template | byte comparison | stderr message, exit 1, output removed |
-| Unterminated `<!--` in prose | prevented by escaping; heading-count mismatch as backstop | Comment renders as literal text; banner if any other cause truncates |
+| Unterminated `<!--` at line start | prevented by escaping; sentinel check as backstop | Comment renders as literal text; stderr warning and a page banner |
 | Remote image in payload | `renderer.image` | Inert chip; zero network requests on load |
 | `javascript:` / `data:` / `vbscript:` link | `renderer.link` scheme allowlist | Rendered as plain text |
 | Entity-obfuscated scheme (`java&#9;script:`) | href entity-decoded before the scheme test | Rendered as plain text |
@@ -384,12 +386,13 @@ Both prompts gain an explicit `**Score:** <integer 0-100>` field. Both SKILL.md 
 | Content lost for any reason during parsing | sentinel Plan heading missing from the rendered DOM | Red banner naming the loss and directing the reader to the source |
 | Unterminated code fence | scanner reports it; sentinel also disappears | stderr warning plus two banners |
 | Heading form no source-side scanner can see (setext, blockquoted, nested fences, HTML blocks) | not applicable — the count mechanism was removed | No false alarms by construction |
-| Balanced comment inside an indented code sample | escaping gated on unbalanced markers | Sample renders verbatim |
+| Balanced comment inside an indented code sample | escaping gated on an order-aware dangling-opener check, not marker totals | Sample renders verbatim |
 | Protocol-relative `//host` link | explicit rejection alongside the scheme check | Rendered as plain text |
 | Document starting with a blank line, BOM, or front matter | skipped before the H1 test; genuine front matter dropped | Leading H1 still stripped; no setext H2 from `title:` |
 | Leading `---` thematic break, no closing `---` | bounded front-matter detection | Passes through whole rather than being consumed to EOF |
 | H1 surviving mid-document (ATX or setext) | flattened to `####` | Below the index range, so it can neither open nor steal a group |
 | Either document containing its own `## Plan` | sentinel marks the synthesized heading | Task graph attaches to the real tasks |
+| Mid-document fence mispairing (an inner ` ``` ` closing an outer one early) | not detected — the sentinel still renders and fence markers pair up | Loud rather than silent: the following prose appears as one visibly enormous code block |
 | `marked.use` unavailable | explicit check | Visible banner; payload not inserted |
 | Plan not yet written | no second positional argument | `[!PENDING]` callout with explicit "changes are free now" copy |
 | `</script>` in plan content | not possible | Payload is base64 |
@@ -412,7 +415,7 @@ Confirmable by `tests/render_test.sh` and static inspection:
 - Every placeholder must be present exactly once in the template; a missing or duplicated one aborts with a message naming it and leaves no output file.
 - The output is larger than the template, and no placeholder survives.
 - The payload decodes to `SPEC.md` + a `## Plan` heading + the plan body when a plan is supplied, and + the pending callout when not.
-- The leading H1 of each document is absent from the payload. Any H1 further down survives and is indexed by the page.
+- The leading H1 of each document is absent from the payload.
 - A `# comment` line inside a fenced block in a plan with no H1 survives into the payload.
 - A document whose first line is not an H1 (after BOM, blank lines, and front matter are skipped) is passed through whole.
 - A plan starting with a blank line, a BOM, or YAML front matter still has its H1 removed, leaves no H1 in the payload, and nests its tasks under Plan.
@@ -421,9 +424,10 @@ Confirmable by `tests/render_test.sh` and static inspection:
 - A dangling `<!--` is escaped **with its leading indentation intact**; a comment inside a fenced or indented code block is never escaped; a *balanced* comment in an indented code sample survives verbatim; a stray `-->` earlier in the prose does not disable escaping.
 - The payload carries the sentinel-marked `## Plan` heading, and `data-plan-state` is `pending` or `attached` to match.
 - An unterminated fence and an unterminated comment each produce a warning on stderr; a clean document produces none.
-- The link renderer keeps bare, dot-relative, root-relative, and fragment hrefs, and demotes `javascript:`, `data:`, `vbscript:`, protocol-relative `//host`, and entity-obfuscated variants — asserted on the resolved `a.host` and `a.protocol`, not on the raw attribute. (`a.protocol` alone cannot discriminate: it is `file:` for both a safe relative link and a `//host` UNC bypass.)
+- The link renderer keeps bare, dot-relative, root-relative, and fragment hrefs, and demotes `javascript:`, `data:`, `vbscript:`, protocol-relative `//host`, its backslash-equivalent spellings (`/\host`, `\\host`), and entity-obfuscated variants — asserted on the resolved `a.host` and `a.protocol`, not on the raw attribute. (`a.protocol` alone cannot discriminate: it is `file:` for both a safe relative link and a `//host` UNC bypass.)
 - The task dependency graph is inserted immediately before the first task heading **inside the plan region**, including when either document contains its own `## Plan` section or a task-shaped `### Task N` heading outside the plan. No task node is emitted twice.
 - The page raises a banner when the sentinel Plan heading is absent from the rendered DOM, and none when the document is intact.
+- Every `### Task N` in the plan region appears under the Plan group in the index, including when a foreign `##` (a setext heading manufactured from front matter, or a stray section) sits between the Plan heading and the tasks.
 - A supplied but unreadable plan exits 1 and produces no output file.
 - An unreadable spec, template, or vendor file exits 1.
 - `render.sh` creates a missing output directory.
@@ -471,6 +475,19 @@ Everything visual remains in the plan's `## Browser-Walk Inventory`. Per umbrell
 This spec is its own evidence for that rule. An earlier revision scored 79 with a prototype in which **no diagram rendered at all**, because every diagram assertion had been classified walk-only and no walk had been run. A later revision fixed that and scored 88 — and adversarial testing then found that five of the eleven fixes had introduced new defects, including a markdown image that beaconed to a remote host and an unterminated HTML comment that silently deleted the pending callout. Both rounds were caught by executing the artifact, not by reading it.
 
 The first dogfood case is this spec. Render it, and the brief you read to approve the change is produced by the change.
+
+## Known open findings
+
+Five review rounds surfaced 42 defects. These remain open at freeze, all found by adversarial review and reproduced against the prototype. They are recorded here so the implementation plan can carry them as tasks rather than rediscovering them.
+
+| Finding | Effect | Suggested fix |
+|---|---|---|
+| `has_front_matter` requires every line to match `key:`, so indented values and list items (`tags:\n  - a`) abort detection | The block passes through and its closing `---` becomes a setext H2. Now harmless to the index (tasks nest by region), but the heading still appears as a grotesque index entry. Silent. | Accept indented continuations and `- ` entries; require only that the first enclosed line looks like `key:` |
+| The front-matter search gives up after ~50 lines | A longer block is not detected, with the same effect as above. The cap is a failure threshold, not a safety property. | Drop the cap — requiring a closing `---` is the real guard |
+| The sentinel check takes the **first** marked `h2` | A spec containing U+2060 in one of its own h2s satisfies the integrity assertion, so loss after that point would go unreported. Also leaks the marker into the visible heading and index. | Strip U+2060 from the payload before appending the sentinel, making it unique by construction; assert exactly one |
+| `scan.awk` fabricates "unterminated fence" warnings on intact documents (a backtick info string containing a backtick is a paragraph to `marked`, a fence to the scanner) | A reader-facing banner cries wolf on a correct brief, which round four established disarms the backstop | Suppress diag banners when the sentinel check passes; keep the stderr line for the author |
+| `planTasks()` walks `nextElementSibling` | Tasks nested inside a list, blockquote, or `<details>` yield no dependency graph, silently | Scope by `compareDocumentPosition` instead of the sibling chain; banner when the plan region yields zero tasks while `data-plan-state` is `attached` |
+| The pending-notice check tests `blockquote, .callout` | Every realistic spec contains one, so the predicate is always satisfied and the check can never fire | Assert `.callout.pending` specifically |
 
 ## Out of scope
 
