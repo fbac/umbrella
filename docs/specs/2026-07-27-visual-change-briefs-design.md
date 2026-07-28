@@ -159,7 +159,7 @@ sequenceDiagram
   A->>R: render.sh spec.md -o docs/briefs/<name>.html
   R->>R: assert every placeholder present exactly once
   R->>R: strip leading H1, append "## Plan" + body or pending callout
-  R->>R: neutralise line-start HTML comments, count headings
+  R->>R: neutralise dangling comments, flatten stray H1s
   R->>R: base64 payload, title, sources
   R->>R: sed-substitute short placeholders
   R->>R: anchored sed r/d inject vendor bundle, then payload
@@ -169,7 +169,7 @@ sequenceDiagram
   H->>F: open file://
   F->>F: decode, parse with HTML/images/links neutralised
   F->>F: assert the sentinel Plan heading survived parsing
-  F->>F: build index from h1/h2/h3, scrollspy
+  F->>F: build index from h2/h3, tasks by plan region
   F->>F: build DAG from declared Depends on
   F->>F: mermaid render light pass, then dark pass
   H-->>A: "the approach in Design is wrong"
@@ -483,7 +483,7 @@ Five review rounds surfaced 42 defects. These remain open at freeze, all found b
 | Finding | Effect | Suggested fix |
 |---|---|---|
 | `has_front_matter` requires every line to match `key:`, so indented values and list items (`tags:\n  - a`) abort detection | The block passes through and its closing `---` becomes a setext H2. Now harmless to the index (tasks nest by region), but the heading still appears as a grotesque index entry. Silent. | Accept indented continuations and `- ` entries; require only that the first enclosed line looks like `key:` |
-| The front-matter search gives up after ~50 lines | A longer block is not detected, with the same effect as above. The cap is a failure threshold, not a safety property. | Drop the cap — requiring a closing `---` is the real guard |
+| *(same root cause as above)* The front-matter search also gives up after ~50 lines | A longer block is not detected, with the same effect. The cap is a failure threshold, not a safety property. | Drop the cap — requiring a closing `---` is the real guard. Fix alongside the row above as one task. |
 | The sentinel check takes the **first** marked `h2` | A spec containing U+2060 in one of its own h2s satisfies the integrity assertion, so loss after that point would go unreported. Also leaks the marker into the visible heading and index. | Strip U+2060 from the payload before appending the sentinel, making it unique by construction; assert exactly one |
 | `scan.awk` fabricates "unterminated fence" warnings on intact documents (a backtick info string containing a backtick is a paragraph to `marked`, a fence to the scanner) | A reader-facing banner cries wolf on a correct brief, which round four established disarms the backstop | Suppress diag banners when the sentinel check passes; keep the stderr line for the author |
 | `planTasks()` walks `nextElementSibling` | Tasks nested inside a list, blockquote, or `<details>` yield no dependency graph, silently | Scope by `compareDocumentPosition` instead of the sibling chain; banner when the plan region yields zero tasks while `data-plan-state` is `attached` |
