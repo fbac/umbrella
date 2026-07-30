@@ -515,7 +515,7 @@ git commit -m "feat(change-brief): render.sh CLI, placeholder preconditions, fai
 
 ### Task 5: `render.sh` payload assembly — `static-verifiable`
 
-**Depends on:** Task 4
+**Depends on:** Task 2, Task 4
 
 Both documents' leading H1 is dropped: the spec's title is already the masthead and the plan's would be a second H1 mid-document. The strip is **first-line-only** — a "first `^# ` anywhere" rule is fence-unaware and silently deletes a `# comment` line from a bash fence in a plan that has no H1.
 
@@ -848,7 +848,7 @@ git commit -m "feat(change-brief): diagnostics, sha256 provenance, anchored sed 
 
 ### Task 7: `template.html` shell, CSS and placeholders — `static-verifiable`
 
-**Depends on:** Task 1
+**Depends on:** Task 2, Task 5
 
 Each placeholder appears **exactly once** and must never be named in a comment — `render.sh` rejects a template that mentions one twice.
 
@@ -1932,7 +1932,7 @@ chk "front matter body retained" "$(payload "$W/fm.html" | grep -c '^### Task 1:
 printf '# T\n\n## Fake\342\201\240 Heading\n\nbody\n' > "$W/mark.md"
 "$S/render.sh" "$W/mark.md" -o "$W/mark.html" >/dev/null
 chk "stray U+2060 stripped from the payload" \
-  "$(payload "$W/mark.html" | grep -c 'Fake. Heading')" "0"
+  "$(payload "$W/mark.html" | grep -cF "Fake$(printf '\342\201\240') Heading")" "0"
 chk "exactly one sentinel in the payload" \
   "$(payload "$W/mark.html" | grep -c "Plan$(printf '\342\201\240')")" "1"
 
@@ -1952,7 +1952,7 @@ chk "pending check asserts .callout.pending" \
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: seven FAILs, exit 1.
+Expected: **five** FAILs. Two of the seven new assertions already pass against the unfixed code — `front matter body retained` (the old `has_front_matter` leaves the block in place, so the task heading survives anyway) and `exactly one sentinel in the payload` (the spec's stray U+2060 heading is not named "Plan", so the count is 1 either way). Both begin exercising real behaviour only after Step 3f, exit 1.
 
 - [ ] **Step 3a: Fix findings 1 and 2 — front-matter detection**
 
@@ -2137,7 +2137,7 @@ Expected: seven FAILs, exit 1.
 
 `assets/change-brief/tests/fixtures/spec.md`:
 
-```markdown
+````markdown
 # Fixture Spec
 
 ## Why this change
@@ -2150,7 +2150,7 @@ A fixture used by render_test.sh and verify.mjs.
 flowchart LR
   A[Start] --> B[End]
 ```
-```
+````
 
 `assets/change-brief/tests/fixtures/plan.md`:
 
@@ -2195,7 +2195,7 @@ Title metacharacters must survive without becoming markup.
 
 `assets/change-brief/tests/fixtures/broken-diagram.md`:
 
-```markdown
+````markdown
 # Broken Diagram
 
 ## Design
@@ -2213,7 +2213,7 @@ this is not valid mermaid at all {{{
 flowchart TB
   C --> D
 ```
-```
+````
 
 `assets/change-brief/tests/fixtures/beacon.md`:
 
@@ -2249,9 +2249,6 @@ An arrow --> appears in prose before the dangling opener below.
 This section must still render.
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `bash assets/change-brief/tests/render_test.sh`
 `assets/change-brief/tests/fixtures/plan-region.md` — a spec that deliberately collides with every heuristic the plan region has to survive: it carries its own `## Plan` section, its own `### Task 1:` heading, and (paired with `plan.md`) a foreign `##` between the sentinel and the real tasks. One fixture closes three `static-verifiable` requirements that were otherwise covered only by the browser walk.
 
 ```markdown
@@ -2451,7 +2448,10 @@ async function probe(file) {
 {
   const f = render(join(FIX, 'plan-region.md'), join(FIX, 'plan.md'), join(W, 'plan-region.html'));
   const r = await probe(f);
-  const plan = r.groups.find(g => g.h2 === 'Plan');
+  // LAST matching group: plan-region.md deliberately carries its own "## Plan"
+  // section, and the sentinel marker is stripped before data-toc is captured,
+  // so both index groups are literally labelled "Plan".
+  const plan = r.groups.filter(g => g.h2 === 'Plan').pop();
   chk('plan-region: tasks nest under Plan', plan ? plan.kids : null,
       ['Task 1: Alpha', 'Task 2: Beta', 'Task 3: Gamma']);
   chk('plan-region: spec task heading excluded from the Plan group',
@@ -2498,6 +2498,10 @@ console.log(`\nbrowser: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
 ```
 
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `bash assets/change-brief/tests/render_test.sh`
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
@@ -3148,7 +3152,7 @@ Run:
 ```bash
 assets/change-brief/render.sh \
   docs/specs/2026-07-27-visual-change-briefs-design.md \
-  docs/plans/2026-07-28-visual-change-briefs.md \
+  docs/plans/2026-07-30-visual-change-briefs.md \
   -o docs/briefs/2026-07-27-visual-change-briefs-design.html
 ```
 Expected: the output path on stdout, **nothing on stderr**. Any `warning:` line means the sources have a structural defect — fix the source, do not suppress the warning.
