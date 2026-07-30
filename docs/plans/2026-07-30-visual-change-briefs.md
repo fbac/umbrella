@@ -1952,7 +1952,7 @@ chk "pending check asserts .callout.pending" \
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: **five** FAILs. Two of the seven new assertions already pass against the unfixed code — `front matter body retained` (the old `has_front_matter` leaves the block in place, so the task heading survives anyway) and `exactly one sentinel in the payload` (the spec's stray U+2060 heading is not named "Plan", so the count is 1 either way). Both begin exercising real behaviour only after Step 3f, exit 1.
+Expected: **five** FAILs. Two of the seven new assertions already pass against the unfixed code — `front matter body retained` (the old `has_front_matter` leaves the block in place, so the task heading survives anyway) and `exactly one sentinel in the payload` (the spec's stray U+2060 heading is not named "Plan", so the count is 1 either way). `front matter body retained` begins exercising real behaviour after Step 3a, and `exactly one sentinel in the payload` after Step 3b, exit 1.
 
 - [ ] **Step 3a: Fix findings 1 and 2 — front-matter detection**
 
@@ -2273,6 +2273,8 @@ spec, so it must not appear in the Plan index group and must not emit a graph no
 Body.
 ```
 
+- [ ] **Step 4: Run the suite to verify it passes**
+
 Expected: all fixtures PASS. Confirm the whole suite is green and exits 0:
 
 ```bash
@@ -2499,9 +2501,6 @@ process.exit(fail === 0 ? 0 : 1);
 ```
 
 
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `bash assets/change-brief/tests/render_test.sh`
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
@@ -2855,7 +2854,7 @@ nobody "fixes" the H1 away.
 
 Replace the `## Adversarial Plan Review (Umbrella gate)` section's closing line with:
 
-```markdown
+````markdown
 Dispatch a fresh subagent to adversarially review the plan using `skills/writing-plans/plan-document-reviewer-prompt.md`. Iterate until it scores **>90** before execution handoff.
 
 ## Render the Change Brief
@@ -2872,7 +2871,7 @@ Once the plan review passes, re-render the brief with both sources:
 it and continue on the markdown. A missing renderer must never block the gate.**
 
 Executing subagents read `docs/plans/*.md`. They never read `docs/briefs/*.html`.
-```
+````
 
 Then in `## Execution Handoff`, change the first line to:
 
