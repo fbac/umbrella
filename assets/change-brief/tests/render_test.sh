@@ -353,6 +353,45 @@ grep -q 'Unterminated code fence' "$W/warn.txt" && ok "unterminated fence warns 
 "$S/render.sh" "$W/s.md" -o "$W/clean.html" 2>"$W/warn2.txt" >/dev/null
 chk "clean document warns nothing" "$(wc -c < "$W/warn2.txt" | tr -d ' ')" "0"
 
+echo "== title derivation agrees with strip_h1 on which line is the H1 =="
+# Guarded like payload() above: a missing or empty output file must fail every
+# assertion below outright, not be handed to python3 and read as a coincidental
+# empty title that the expected (always non-empty) value just happens not to
+# match. title_of() makes that failure explicit instead of relying on python's
+# traceback-on-missing-file leaving $title empty by accident.
+title_of() {
+  if [ -s "$1" ]; then
+    python3 - "$1" <<'PY'
+import sys, re, base64
+h = open(sys.argv[1], encoding='utf-8').read()
+m = re.search(r'data-title="([^"]*)"', h, re.S)
+print(base64.b64decode(re.sub(r'\s', '', m.group(1))).decode('utf-8') if m else '__NO_DATA_TITLE_ATTRIBUTE__')
+PY
+  else
+    echo "__FIXTURE_NOT_BUILT__"
+  fi
+}
+
+# The regression this whole section guards against: a spec with no real H1
+# whose first (and only) fenced code block contains a line starting with "# ".
+# A fence-unaware "first /^# / anywhere" title scan lifts that line out of the
+# fence; the correct behaviour is to fall back to the basename, exactly as a
+# document with no "# " line at all would.
+printf '## No H1 Here\n\nintro.\n\n```bash\n# comment inside fence\necho hi\n```\n\nmore text\n' > "$W/titlefence.md"
+"$S/render.sh" "$W/titlefence.md" -o "$W/titlefence.html" >/dev/null
+chk "title ignores a hash comment inside a fence when there is no H1" \
+  "$(title_of "$W/titlefence.html")" "titlefence"
+
+printf -- '---\ntitle: FrontMatterValue\n---\n# Real Title\n\nbody\n' > "$W/fmtitle.md"
+"$S/render.sh" "$W/fmtitle.md" -o "$W/fmtitle.html" >/dev/null
+chk "title after front matter is the H1, not the front-matter value" \
+  "$(title_of "$W/fmtitle.html")" "Real Title"
+
+printf '\n\n\n# Blank Then Title\n\nbody\n' > "$W/blanktitle.md"
+"$S/render.sh" "$W/blanktitle.md" -o "$W/blanktitle.html" >/dev/null
+chk "title survives leading blank lines before the H1" \
+  "$(title_of "$W/blanktitle.html")" "Blank Then Title"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

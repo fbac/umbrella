@@ -117,19 +117,37 @@ has_front_matter() {
        NR > 1 && NR <= 51 && !/^[ \t]*$/ && !/^[A-Za-z_][A-Za-z0-9_.-]*:/ { exit }
        END { exit !found }' "$1"
 }
-strip_h1() {
+# Skip a BOM and an optional YAML front-matter block (leading blank lines are
+# left in the stream, not discarded). This is the ONE place that decides
+# "where the real document starts" — strip_h1 and the TITLE derivation below
+# both consume it, so they can no longer independently decide, and drift on,
+# which line is "the H1". They previously did not: TITLE re-implemented this
+# skip logic on its own with a fence-unaware "first /^# / anywhere" scan,
+# which lifted text out of fenced code blocks whenever a spec had no real H1
+# — the same class of bug the comment at the top of this section documents
+# for strip_h1 itself. A single shared implementation is the fix; a third
+# independent copy would only drift again.
+skip_preamble() {
   strip_bom "$1" > "$TMP/nobom.md"
   fmflag=0
   has_front_matter "$TMP/nobom.md" && fmflag=1
   awk -v fm="$fmflag" '
-    BEGIN { started = 0; infm = 0; fmdone = 0 }
+    BEGIN { infm = 0; fmdone = 0 }
     fm && !fmdone && !infm && NR == 1 && /^---[ \t]*$/ { infm = 1; next }
     infm && /^---[ \t]*$/ { infm = 0; fmdone = 1; next }
     infm { next }
+    { print }
+  ' "$TMP/nobom.md"
+}
+# The exact first non-blank line strip_h1 examines to decide whether to drop
+# an H1 — or nothing, if the document is empty past the preamble.
+first_content_line() { skip_preamble "$1" | awk '/^[ \t]*$/ { next } { print; exit }'; }
+strip_h1() {
+  skip_preamble "$1" | awk '
     !started && /^[ \t]*$/ { print; next }
     !started { started = 1; if ($0 ~ /^ {0,3}# /) next }
     { print }
-  ' "$TMP/nobom.md"
+  '
 }
 
 strip_h1 "$SPEC" > "$TMP/payload.md"
@@ -183,7 +201,9 @@ SOURCES="$(basename "$SPEC")@$(digest "$SPEC")"
 SOURCES="$SOURCES · $PLAN_STATE"
 
 GENERATED="$(date -u '+%Y-%m-%d %H:%M UTC')"
-TITLE="$(strip_bom "$SPEC" | awk '/^ {0,3}# /{ sub(/^ *# */,""); print; exit }')"
+# Read off the SAME first content line strip_h1 would strip, not an
+# independent scan — see skip_preamble above for why the two must agree.
+TITLE="$(first_content_line "$SPEC" | awk '/^ {0,3}# /{ sub(/^ *# */,""); print }')"
 [ -n "$TITLE" ] || TITLE="$(basename "${SPEC%.md}")"
 
 # ---- encode ----------------------------------------------------------------
