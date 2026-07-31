@@ -137,6 +137,45 @@ chk "unreadable plan exits 1" "$?" "1"
 "$S/render.sh" "$W/spec.md" -o "$W/x.html" -V "$W/novendor" >/dev/null 2>"$W/err.txt"
 chk "missing vendor exits 1" "$?" "1"
 
+echo "== render.sh: flag missing its value (defect round) =="
+for flag in -o -t -V; do
+  "$S/render.sh" "$W/spec.md" "$flag" >/dev/null 2>"$W/err.txt"
+  chk "  $flag as last argument exits 1" "$?" "1"
+  [ -s "$W/err.txt" ] && ok "  $flag as last argument writes a diagnostic" \
+    || no "  $flag as last argument writes a diagnostic" "stderr was empty"
+  grep -q -- "$flag" "$W/err.txt" && ok "  $flag as last argument names the flag" \
+    || no "  $flag as last argument names the flag" "$(cat "$W/err.txt")"
+done
+
+echo "== render.sh: same-line duplicate placeholder (defect round) =="
+cat > "$W/dup.html" <<'EOF'
+<html><body>
+__TITLE_B64____TITLE_B64__
+__SOURCES_B64__
+__GENERATED__
+__DIAG_B64__
+__PLANSTATE__
+__VENDOR_JS__
+__BRIEF_B64__
+</body></html>
+EOF
+"$S/render.sh" "$W/spec.md" -o "$W/dup_out.html" -t "$W/dup.html" >/dev/null 2>"$W/err.txt"
+chk "same-line duplicate placeholder exits 1" "$?" "1"
+grep -q '__TITLE_B64__ appears 2 times' "$W/err.txt" && ok "  names the duplicate and its count" \
+  || no "  names the duplicate and its count" "$(cat "$W/err.txt")"
+[ -f "$W/dup_out.html" ] && no "  duplicate-placeholder template leaves no output file" "file exists" \
+  || ok "  duplicate-placeholder template leaves no output file"
+
+echo "== render.sh: CRLF template (defect round) =="
+{ printf '<html><body>\r\n'
+  printf '__TITLE_B64__\r\n__SOURCES_B64__\r\n__GENERATED__\r\n__DIAG_B64__\r\n__PLANSTATE__\r\n__VENDOR_JS__\r\n__BRIEF_B64__\r\n'
+  printf '</body></html>\r\n'
+} > "$W/crlf_tpl.html"
+"$S/render.sh" "$W/spec.md" -o "$W/crlf_out.html" -t "$W/crlf_tpl.html" >/dev/null 2>"$W/err.txt"
+chk "CRLF template exits 1" "$?" "1"
+grep -qi 'crlf' "$W/err.txt" && ok "  names CRLF as the cause, not a false alone-on-its-line error" \
+  || no "  names CRLF as the cause, not a false alone-on-its-line error" "$(cat "$W/err.txt")"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
