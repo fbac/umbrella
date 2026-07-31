@@ -6,65 +6,29 @@
 # fences, indented code, HTML blocks, backtick info strings — and each
 # divergence is either a false truncation alarm or silent content loss.
 #
-# Truncation is now detected by the PAGE, structurally: render.sh always
-# appends a sentinel Plan heading, and the page asserts it survived the parse.
-# That check uses the same parser the reader sees, so it cannot drift, and it
+# A fifth attempt tried to also flatten a setext heading formed by a list
+# item's own first line ("- text" immediately followed by "===", which
+# CommonMark promotes via lazy continuation). Four further rounds each closed
+# one content-loss edge in that split/reassemble logic and opened another in
+# the same few lines — CRLF, "> quoted" content, tab markers, bare markers —
+# with no sign of convergence, so it was reverted. The residual gap: a list
+# item's first line, immediately followed with no blank line by a bare setext
+# underline, still reaches the DOM as an unflattened stray H1. Unlike the
+# truncation this file defers to the page below, the page's structural
+# sentinel does NOT backstop this — it only catches its own synthesized
+# heading going missing, not a localized substitution mid-document. Accepted
+# anyway: neither real document in this repo has ever needed it.
+#
+# Truncation is detected by the PAGE, structurally: render.sh always appends
+# a sentinel Plan heading, and the page asserts it survived the parse. That
+# check uses the same parser the reader sees, so it cannot drift, and it
 # catches every cause of content loss rather than the ones awk can model.
 #
 # What remains here is only what the page cannot do, because it happens before
 # parsing: neutralising a dangling HTML comment, and flattening stray H1s —
-# both ATX ("# Title") and setext ("Title\n=====").
-#
-# Two things the setext path must also get right, both verified against the
-# vendored marked v12.0.2 (the sole authority for what counts as a heading
-# here, not this file's reading of the CommonMark spec):
-#
-#   - CRLF line endings. A setext underline or blank line ending in "\r" used
-#     to fall outside the end-anchored [ \t]* character classes below, so a
-#     "=======\r" was never recognised as an underline and the H1 it should
-#     have demoted reached the DOM intact. Fixed by admitting \r into those
-#     classes; ATX flattening and the fence-close marker check needed no such
-#     fix because they anchor only at line start.
-#
-#   - List-item lazy continuation. CommonMark lets a list item's first line
-#     be promoted to a heading by a bare "===" right after it — "- text\n==="
-#     renders <li><h1>text</h1>...</li> — because the marker prefix does not
-#     stop the setext underline from lazily continuing the item's paragraph.
-#     Blockquotes were checked and do NOT get this treatment ("> text\n==="
-#     stays a paragraph), so "#" and ">" remain excluded from holding — but
-#     that exclusion has to be tested against the text AFTER the marker is
-#     stripped, not the raw line: "- > quoted" starts with "-", so testing
-#     the raw line missed it, held it anyway, and fabricated a heading over
-#     what should stay a blockquote — a real regression from an earlier
-#     round, fixed by re-testing the post-marker text before holding.
-#
-#     A list-item line IS held — split into its marker prefix (kept verbatim,
-#     including a tab as well as a space after the bullet/number, since
-#     CommonMark accepts either as marker-following whitespace) and the text
-#     after it — so demotion keeps the prefix and rewrites only the text:
-#     "- text" + "===" becomes "- #### text", not "#### - text", which would
-#     destroy the list structure. That guarantee holds ONLY when the
-#     post-marker text does not itself start with "#" or ">"; when it does
-#     (e.g. "- # nested heading"), the line is excluded from holding
-#     entirely — same as if it had no marker at all — and a real heading
-#     nested inside the item's own content is left unflattened. Demoting
-#     that nested case would mean detecting an ATX heading somewhere other
-#     than line start, which is exactly the CommonMark-reimplementation dead
-#     end the four review rounds above settled. The page's structural
-#     sentinel is the accepted backstop for that residual gap.
-#
-#     Nor does it hold when the post-marker text is empty or all
-#     whitespace — "- ", "-   ", or "-" alone at end of line. Checked against
-#     the vendored parser, none of those ever produce a heading either (an
-#     empty list item or a plain paragraph, but never a promoted <h1>), so
-#     they are excluded from holding too and left untouched. A lone TAB is
-#     the one exception, and it goes the other way: marked does not accept a
-#     bare tab as a valid marker delimiter at all, so "-\t" alone is not a
-#     list item to marked — it is ordinary text, and a following "===" DOES
-#     promote it to a real <h1> that must be demoted. That line takes the
-#     plain (non-split) hold path, same as any text line. An earlier round
-#     split it anyway, which discarded the text and fabricated an empty
-#     heading inside a list marked never creates.
+# both ATX ("# Title") and setext ("Title\n====="), including a setext
+# underline or blank line ending in CRLF, verified against the vendored
+# marked v12.0.2.
 #
 # Modes:
 #   -v mode=escape  emit the payload: demote stray H1s, and if -v unbalanced=1
@@ -86,15 +50,12 @@ function marker_of(line,   m) {
   return ""
 }
 
-# Flush the one-line lookback buffer used for setext detection. held_set (not
-# "held != ''") is the sentinel: a list-item line whose text-after-marker is
-# itself empty (e.g. a bare "- ") legitimately holds an empty string, and
-# testing held != "" would treat that as "nothing held" and drop the line.
+# Flush the one-line lookback buffer used for setext detection.
 function flush(   p) {
-  if (held_set) { p = heldprefix held; held_set = 0; heldprefix = ""; held = ""; emit(p) }
+  if (held != "") { p = held; held = ""; emit(p) }
 }
 
-BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = ""; heldprefix = ""; held_set = 0 }
+BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "" }
 
 {
   line = $0
@@ -102,15 +63,11 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
   # ---- setext H1: a run of "=" under a non-blank line ----------------------
   # Demoted like ATX H1s. The ATX regex cannot see these, so a setext H1
   # reaches the DOM as a real <h1>, opening an index group the h2/h3 builder
-  # never renders — leaving that whole section unreachable. The trailing
-  # [ \t\r]* (not [ \t]*) admits a CRLF underline: without \r in the class, an
-  # "=======\r" line was never recognised as an underline and the H1 above it
-  # reached the DOM unflattened. heldprefix carries a list marker through the
-  # demotion (see below); it is "" for a plain held text line, so this is a
-  # no-op change for the non-list case.
-  if (fchar == "" && !incode && held_set && line ~ /^ {0,3}=+[ \t\r]*$/) {
-    emit(heldprefix "#### " held)
-    held = ""; heldprefix = ""; held_set = 0
+  # never renders — leaving that whole section unreachable. \r is admitted
+  # alongside space/tab so a CRLF underline ("=======\r") is still recognised.
+  if (fchar == "" && !incode && held != "" && line ~ /^ {0,3}=+[ \t\r]*$/) {
+    emit("#### " held)
+    held = ""
     next
   }
 
@@ -129,8 +86,7 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
   if (fchar != "") { flush(); emit(line); next }
 
   # \r admitted here too: a CRLF blank line's record is "\r", not "", and
-  # without \r in the class it read as ordinary text — eligible to be held as
-  # setext content — rather than as the blank line it actually is.
+  # without it the line read as ordinary (setext-eligible) text instead.
   if (line ~ /^[ \t\r]*$/) { flush(); prevblank = 1; incode = 0; emit(line); next }
 
   if ((prevblank || incode) && line ~ /^(    |\t)/) {
@@ -164,57 +120,8 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
   if (unbalanced && line ~ /^ {0,3}<!--/) sub(/<!--/, "\\&lt;!--", line)
 
   # Hold non-blank lines one line back so the next line can turn them into a
-  # setext heading. An ATX line ("#") or blockquote line (">") is never
-  # setext content and is excluded from holding entirely — confirmed against
-  # the vendored parser: "> text\n===" stays a quoted paragraph, not a
-  # heading. A list-item line ("- text", "1. text", marker followed by a
-  # space OR a tab — CommonMark accepts either) IS eligible (CommonMark lazy
-  # continuation), but is split into heldprefix (the marker, verbatim,
-  # including its 0-3 leading spaces) and rest (the text after it), so a
-  # later setext underline demotes only the text — "- text" becomes
-  # "- #### text", keeping the list structure — while a flush() with no
-  # heading reassembles heldprefix held back into the original line.
-  #
-  # The #/> exclusion above tests the RAW line, which only ever sees the
-  # marker ("-", "1.", ...), never what follows it — so it must be re-applied
-  # to rest once the marker is stripped. Skipping that re-test is how a
-  # previous round let "- > quoted" (marker, then blockquote content) get
-  # held and turned into a fabricated heading over a destroyed blockquote.
-  #
-  # A marker with EMPTY or WHITESPACE-ONLY content is not real list-item
-  # text, and the vendored parser is asymmetric about what it does with it —
-  # verified case by case, not assumed:
-  #   - "- " (space, nothing else), "-   " (spaces, nothing else), and "-"
-  #     (marker alone, no delimiter at all) never produce a heading: marked
-  #     renders an empty list item or falls back to a plain paragraph, but
-  #     the following "===" is never promoted. Nothing to demote, so these
-  #     must be left untouched rather than held.
-  #   - "-\t" (tab, nothing else) is different: marked does not recognise a
-  #     bare tab as a valid list start at all, so the ENTIRE raw line is
-  #     ordinary heading-eligible text and a following "===" DOES produce a
-  #     real <h1> over the literal text "-\t". That needs the same plain,
-  #     non-list hold as an ordinary text line — splitting it, as an earlier
-  #     round did, discarded that text and fabricated an empty heading inside
-  #     a list marked never creates.
-  if (mode == "escape") {
-    if (line ~ /^ {0,3}(#|>)/) { emit(line); next }
-    if (line ~ /^ {0,3}([-*+]|[0-9]+[.)])\r?$/) { emit(line); next }
-    if (match(line, /^ {0,3}([-*+]|[0-9]+[.)])[ \t]/)) {
-      delim = substr(line, RSTART + RLENGTH - 1, 1)
-      rest = substr(line, RSTART + RLENGTH)
-      if (rest ~ /^ {0,3}(#|>)/) { emit(line); next }
-      if (rest ~ /^[ \t]*\r?$/) {
-        if (delim == "\t") { heldprefix = ""; held = line; held_set = 1; next }
-        emit(line); next
-      }
-      heldprefix = substr(line, RSTART, RLENGTH)
-      held = rest
-      held_set = 1
-      next
-    }
-    heldprefix = ""; held = line; held_set = 1
-    next
-  }
+  # setext heading. Only text lines can be setext content.
+  if (mode == "escape" && line !~ /^ {0,3}(#|>|[-*+] |[0-9]+[.)] )/) { held = line; next }
   emit(line)
 }
 

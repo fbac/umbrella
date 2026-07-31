@@ -62,33 +62,11 @@ chk "unterminated fence reported" \
 chk "clean document produces no diagnostics" \
   "$(awk -v mode=diag -f "$SC" "$W/fenced.md" | wc -l | tr -d ' ')" "0"
 
-echo "== scan.awk: CRLF + list lazy setext (fix round) =="
+echo "== scan.awk: CRLF fix, and the accepted list-lazy-setext gap =="
 
 printf 'Heading\r\n=======\r\n\r\nbody\r\n' > "$W/crlf.md"
 chk "CRLF setext H1 flattened to h4" \
   "$(awk -v mode=escape -f "$SC" "$W/crlf.md" | grep -c '^#### Heading')" "1"
-
-printf -- '- item one\n========\nmore\n' > "$W/list_bullet.md"
-chk "bullet list lazy setext flattened, marker preserved" \
-  "$(awk -v mode=escape -f "$SC" "$W/list_bullet.md" | grep -c '^- #### item one$')" "1"
-
-printf '1. item one\n========\nmore\n' > "$W/list_ordered.md"
-chk "ordered list lazy setext flattened, marker preserved" \
-  "$(awk -v mode=escape -f "$SC" "$W/list_ordered.md" | grep -c '^1\. #### item one$')" "1"
-
-printf -- '-\titem\n========\nmore\n' > "$W/list_tab.md"
-chk "tab-separated bullet marker takes the split path, list preserved" \
-  "$(awk -v mode=escape -f "$SC" "$W/list_tab.md" | grep -c $'^-\t#### item$')" "1"
-
-printf -- '- > quoted inside item\n========\nmore\n' > "$W/list_bq.md"
-chk "list item containing blockquote content is left untouched, not fabricated into a heading" \
-  "$(awk -v mode=escape -f "$SC" "$W/list_bq.md" | grep -c '^- > quoted inside item$')" "1"
-chk "... and produces no stray h4 anywhere in the output" \
-  "$(awk -v mode=escape -f "$SC" "$W/list_bq.md" | grep -c '^#### ')" "0"
-
-printf -- '- # not a heading\n========\n' > "$W/list_atx.md"
-chk "list item with its own nested ATX marker stays unchanged (accepted pre-existing gap)" \
-  "$(awk -v mode=escape -f "$SC" "$W/list_atx.md" | grep -c '^- # not a heading$')" "1"
 
 printf '> quoted\n===\n' > "$W/bq.md"
 chk "blockquote setext-lookalike NOT flattened" \
@@ -96,31 +74,18 @@ chk "blockquote setext-lookalike NOT flattened" \
 chk "blockquote setext-lookalike underline left intact" \
   "$(awk -v mode=escape -f "$SC" "$W/bq.md" | grep -c '^===$')" "1"
 
-printf -- '- item one\nmore text\n' > "$W/list_noheading.md"
-chk "list item without a following underline stays unchanged" \
-  "$(awk -v mode=escape -f "$SC" "$W/list_noheading.md" | grep -c '^- item one$')" "1"
+# List-item lazy setext continuation is an accepted gap (see scan.awk's
+# header): a list item's first line, immediately followed by a bare
+# underline, still reaches the DOM as an unflattened stray H1. These guard
+# the gap's boundary rather than the gap itself, so a future change that
+# silently starts (or stops) touching list-item lines is caught either way.
+printf -- '- item one\n========\nmore\n' > "$W/list_gap.md"
+chk "bullet list item + bare underline is left unchanged (accepted gap)" \
+  "$(awk -v mode=escape -f "$SC" "$W/list_gap.md")" "$(cat "$W/list_gap.md")"
 
-echo "== scan.awk: bare/whitespace-only list markers (fix round) =="
-
-printf -- '-\t\n========\nmore\n' > "$W/bare_tab.md"
-chk "marker+tab+nothing+setext demotes the whole raw line (ground truth: real h1, no list)" \
-  "$(awk -v mode=escape -f "$SC" "$W/bare_tab.md" | grep -c $'^#### -\t$')" "1"
-
-printf -- '- \n========\nmore\n' > "$W/bare_space.md"
-chk "marker+space+nothing+setext left byte-identical (ground truth: no heading forms)" \
-  "$(awk -v mode=escape -f "$SC" "$W/bare_space.md")" "$(cat "$W/bare_space.md")"
-
-printf -- '-\n========\nmore\n' > "$W/bare_none.md"
-chk "bare marker with no delimiter at all left byte-identical (ground truth: no heading forms)" \
-  "$(awk -v mode=escape -f "$SC" "$W/bare_none.md")" "$(cat "$W/bare_none.md")"
-
-printf '1.\n========\nmore\n' > "$W/bare_ordered.md"
-chk "bare ordered marker (non-'-' form) with no delimiter left byte-identical" \
-  "$(awk -v mode=escape -f "$SC" "$W/bare_ordered.md")" "$(cat "$W/bare_ordered.md")"
-
-printf -- '- item one\n========\nmore\n' > "$W/guard_list.md"
-chk "normal marker+text+underline path still flattens with marker preserved (regression guard)" \
-  "$(awk -v mode=escape -f "$SC" "$W/guard_list.md" | grep -c '^- #### item one$')" "1"
+printf '1. item one\n========\nmore\n' > "$W/list_gap_ordered.md"
+chk "ordered list item + bare underline is left unchanged (same accepted gap)" \
+  "$(awk -v mode=escape -f "$SC" "$W/list_gap_ordered.md")" "$(cat "$W/list_gap_ordered.md")"
 
 echo "== render.sh preconditions =="
 printf '# T\n\n## Design\n\nbody\n' > "$W/spec.md"
