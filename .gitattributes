@@ -1,0 +1,8 @@
+# The change-brief render pipeline is POSIX shell/awk that rejects CRLF
+# input outright (see render.sh's explicit CRLF guards). Pin these files to
+# LF so a contributor cloning with core.autocrlf=true does not get a
+# checkout that git itself has silently made unrenderable.
+assets/change-brief/template.html text eol=lf
+assets/change-brief/render.sh text eol=lf
+assets/change-brief/scan.awk text eol=lf
+assets/change-brief/tests/render_test.sh text eol=lf

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change Brief</title>
+<style>
+:root{
+  --bg:#fbfbfa; --bg-alt:#f3f3f1; --bg-code:#f0f0ee;
+  --fg:#1c1c1a; --fg-dim:#65655f; --fg-faint:#8f8f87;
+  --line:#e2e2dd; --line-strong:#c9c9c2;
+  --accent:#4f46e5; --accent-soft:#eeecfd;
+  --warn:#b45309; --warn-soft:#fdf3e3;
+  --danger:#b91c1c; --danger-soft:#fdeceb;
+  --ok:#15803d; --ok-soft:#e9f6ed;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+}
+:root[data-theme="dark"]{
+  --bg:#15151a; --bg-alt:#1d1d24; --bg-code:#20202a;
+  --fg:#e6e6ea; --fg-dim:#a0a0ad; --fg-faint:#75757f;
+  --line:#2b2b35; --line-strong:#3d3d4a;
+  --accent:#8b85f5; --accent-soft:#232135;
+  --warn:#f0a35e; --warn-soft:#2c2318;
+  --danger:#f08a84; --danger-soft:#2e1c1c;
+  --ok:#6ddc95; --ok-soft:#16281d;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--fg);
+  font-family:var(--sans); font-size:15.5px; line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent); text-decoration:none}
+a:hover{text-decoration:underline}
+
+.shell{display:flex; min-height:100vh}
+.sidebar{
+  width:290px; flex:0 0 290px; border-right:1px solid var(--line);
+  background:var(--bg-alt); position:sticky; top:0; height:100vh;
+  overflow-y:auto; padding:20px 0 40px;
+}
+.main{flex:1 1 auto; min-width:0; display:flex; justify-content:center; padding:0 32px 120px}
+.doc{width:100%; max-width:860px}
+
+.masthead{border-bottom:1px solid var(--line); padding:34px 0 22px; margin-bottom:34px}
+.eyebrow{font-size:11px; letter-spacing:.11em; text-transform:uppercase; color:var(--fg-faint); font-weight:600; margin-bottom:10px}
+.masthead h1{font-size:33px; line-height:1.2; margin:0 0 16px; letter-spacing:-.02em}
+.stamps{display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:12px}
+.stamp{
+  display:inline-flex; align-items:center; gap:6px;
+  border:1px solid var(--line-strong); border-radius:999px;
+  padding:3px 11px; color:var(--fg-dim); font-family:var(--mono); font-size:11.5px;
+}
+
+.toc-head{display:flex; align-items:center; justify-content:space-between; padding:0 20px 14px; margin-bottom:6px; border-bottom:1px solid var(--line)}
+.toc-title{font-size:11px; letter-spacing:.11em; text-transform:uppercase; color:var(--fg-faint); font-weight:600}
+.theme-toggle{display:flex; gap:2px; background:var(--bg); border:1px solid var(--line-strong); border-radius:7px; padding:2px}
+.theme-toggle button{background:none; border:0; cursor:pointer; padding:3px 7px; border-radius:5px; color:var(--fg-dim); font-size:12px; line-height:1; font-family:var(--sans)}
+.theme-toggle button[aria-pressed="true"]{background:var(--accent-soft); color:var(--accent)}
+nav.toc{padding:10px 12px}
+nav.toc ul{list-style:none; margin:0; padding:0}
+.toc-group{margin-bottom:2px}
+.toc-l2{display:flex; align-items:flex-start; gap:4px}
+.chevron{background:none; border:0; cursor:pointer; color:var(--fg-faint); padding:5px 3px; line-height:1; font-size:10px; flex:0 0 auto; transition:transform .12s ease}
+.chevron[aria-expanded="false"]{transform:rotate(-90deg)}
+.toc-group.no-kids .chevron{visibility:hidden}
+nav.toc a{display:block; padding:5px 8px; border-radius:6px; color:var(--fg-dim); font-size:13.5px; line-height:1.4; flex:1 1 auto}
+nav.toc a:hover{background:var(--bg); color:var(--fg); text-decoration:none}
+nav.toc a.lvl2{font-weight:550; color:var(--fg)}
+nav.toc .kids{margin:0 0 4px 22px; border-left:1px solid var(--line); padding-left:6px}
+nav.toc .kids a{font-size:13px; padding:4px 8px}
+nav.toc a.active{background:var(--accent-soft); color:var(--accent); font-weight:600}
+nav.toc .kids[hidden]{display:none}
+
+.doc h2{font-size:25px; letter-spacing:-.015em; margin:52px 0 4px; padding-top:14px; border-top:1px solid var(--line); scroll-margin-top:20px}
+.doc h2:first-of-type{border-top:0; margin-top:0}
+.doc h3{font-size:18px; letter-spacing:-.01em; margin:34px 0 2px; scroll-margin-top:20px}
+.doc h4{font-size:15px; margin:24px 0 2px; color:var(--fg-dim)}
+.doc p{margin:12px 0}
+.doc ul,.doc ol{margin:12px 0; padding-left:24px}
+.doc li{margin:5px 0}
+.doc li::marker{color:var(--fg-faint)}
+.doc hr{border:0; border-top:1px solid var(--line); margin:44px 0}
+.doc strong{font-weight:640}
+
+code{font-family:var(--mono); font-size:.875em; background:var(--bg-code); padding:.13em .38em; border-radius:4px}
+pre{background:var(--bg-code); border:1px solid var(--line); border-radius:9px; padding:14px 16px; overflow-x:auto; margin:16px 0}
+pre code{background:none; padding:0; font-size:12.8px; line-height:1.6}
+
+table{border-collapse:collapse; width:100%; margin:18px 0; font-size:14px; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top}
+th{background:var(--bg-alt); font-weight:620; font-size:12.5px; letter-spacing:.02em}
+tbody tr:nth-child(even){background:var(--bg-alt)}
+blockquote{margin:16px 0; padding:2px 0 2px 16px; border-left:3px solid var(--line-strong); color:var(--fg-dim)}
+
+.callout{border-radius:9px; padding:13px 16px; margin:18px 0; border:1px solid; font-size:14.5px}
+.callout .callout-label{font-size:11px; letter-spacing:.09em; text-transform:uppercase; font-weight:700; margin-bottom:5px; display:block}
+.callout p:first-of-type{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+.callout.note{border-color:var(--accent); background:var(--accent-soft)}
+.callout.note .callout-label{color:var(--accent)}
+.callout.warning{border-color:var(--warn); background:var(--warn-soft)}
+.callout.warning .callout-label{color:var(--warn)}
+.callout.important{border-color:var(--danger); background:var(--danger-soft)}
+.callout.important .callout-label{color:var(--danger)}
+.callout.tip{border-color:var(--ok); background:var(--ok-soft)}
+.callout.tip .callout-label{color:var(--ok)}
+.callout.pending{border:1px dashed var(--accent); background:var(--accent-soft); padding:22px 24px; border-radius:11px}
+.callout.pending .callout-label{color:var(--accent); font-size:12px}
+
+.badge{display:inline-block; font-family:var(--mono); font-size:10.5px; font-weight:600; letter-spacing:.03em; padding:3px 8px; border-radius:5px; vertical-align:middle; margin-left:8px}
+.badge.static{background:var(--bg-code); color:var(--fg-dim); border:1px solid var(--line-strong)}
+.badge.walk{background:var(--warn-soft); color:var(--warn); border:1px solid var(--warn)}
+
+.doc li:has(> input[type=checkbox]){list-style:none; margin-left:-20px}
+input[type=checkbox]{accent-color:var(--accent); margin-right:7px; transform:translateY(1px)}
+li:has(> input[type=checkbox]:checked){color:var(--fg-faint)}
+li:has(> input[type=checkbox]:checked) strong{text-decoration:line-through; font-weight:500}
+.progress{display:inline-flex; align-items:center; gap:7px; font-family:var(--mono); font-size:11px; color:var(--fg-dim); margin-left:8px; vertical-align:middle}
+.progress .bar{width:52px; height:5px; border-radius:3px; background:var(--line); overflow:hidden}
+.progress .bar span{display:block; height:100%; background:var(--ok)}
+
+/* diagrams: both theme variants rendered up front, toggled by CSS.
+   No re-render on theme change, and print can select the light one synchronously. */
+.mermaid-block{margin:20px 0; padding:18px; border:1px solid var(--line); border-radius:9px; background:var(--bg-alt); overflow-x:auto; text-align:center}
+.mermaid-block svg{max-width:100%; height:auto}
+.d-dark{display:none}
+:root[data-theme="dark"] .d-light{display:none}
+:root[data-theme="dark"] .d-dark{display:block}
+.mermaid-error{margin:20px 0; border:1px solid var(--danger); border-radius:9px; background:var(--danger-soft); overflow:hidden}
+.mermaid-error .err-head{padding:9px 14px; font-size:12px; font-weight:700; color:var(--danger); letter-spacing:.04em; text-transform:uppercase; border-bottom:1px solid var(--danger)}
+.mermaid-error .err-msg{padding:10px 14px; font-family:var(--mono); font-size:12px; color:var(--danger); white-space:pre-wrap}
+.mermaid-error pre{margin:0; border:0; border-top:1px solid var(--danger); border-radius:0; background:transparent}
+.dag-caption{font-size:12px; color:var(--fg-faint); text-align:center; margin-top:-8px; font-family:var(--mono)}
+
+.integrity-banner{
+  border:1px solid var(--danger); background:var(--danger-soft); color:var(--danger);
+  border-radius:9px; padding:13px 16px; margin:0 0 24px; font-size:14px;
+}
+.integrity-banner strong{display:block; margin-bottom:4px; text-transform:uppercase; font-size:11px; letter-spacing:.09em}
+.img-chip{
+  display:inline-flex; align-items:baseline; gap:7px; font-family:var(--mono); font-size:12px;
+  border:1px dashed var(--line-strong); border-radius:6px; padding:3px 9px;
+  color:var(--fg-dim); background:var(--bg-alt); word-break:break-all;
+}
+.img-chip b{font-weight:600; color:var(--fg-faint); font-size:10.5px; letter-spacing:.05em; text-transform:uppercase}
+
+.sidebar-toggle{display:none; position:fixed; left:14px; top:14px; z-index:40; background:var(--bg-alt); border:1px solid var(--line-strong); border-radius:8px; padding:8px 12px; cursor:pointer; color:var(--fg); font-size:14px; line-height:1}
+@media (max-width:900px){
+  .sidebar{position:fixed; z-index:30; left:0; top:0; transform:translateX(-100%); transition:transform .18s ease; box-shadow:0 0 40px rgba(0,0,0,.18)}
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-toggle{display:block}
+  .main{padding:56px 18px 100px}
+}
+
+@media print{
+  /* must out-specify :root[data-theme="dark"] — media queries add no specificity */
+  :root, :root[data-theme="dark"]{
+    --bg:#fff; --bg-alt:#fff; --bg-code:#f5f5f5;
+    --fg:#000; --fg-dim:#333; --fg-faint:#555;
+    --line:#ccc; --line-strong:#999;
+    --accent:#3730a3; --accent-soft:#f4f3ff;
+    --warn:#8a4406; --warn-soft:#fdf6ec;
+    --danger:#991b1b; --danger-soft:#fdf0ef;
+    --ok:#14532d; --ok-soft:#f0f8f2;
+  }
+  /* SVG fills are baked at render time, so force the light variant */
+  :root[data-theme="dark"] .d-light, .d-light{display:block !important}
+  :root[data-theme="dark"] .d-dark, .d-dark{display:none !important}
+  .sidebar,.sidebar-toggle,.theme-toggle{display:none !important}
+  .main{padding:0}
+  .doc{max-width:none}
+  .mermaid-block,pre,table,.callout,.mermaid-error{break-inside:avoid; page-break-inside:avoid}
+  .doc h2,.doc h3{break-after:avoid; page-break-after:avoid}
+  a{color:#000; text-decoration:underline}
+}
+</style>
+<script>
+__VENDOR_JS__
+</script>
+</head>
+<body
+  data-title="__TITLE_B64__"
+  data-sources="__SOURCES_B64__"
+  data-generated="__GENERATED__"
+  data-diag="__DIAG_B64__"
+  data-plan-state="__PLANSTATE__"
+  data-brief="
+__BRIEF_B64__
+">
+
+<button class="sidebar-toggle" id="sbToggle" aria-label="Toggle index">☰</button>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="toc-head">
+      <span class="toc-title">Contents</span>
+      <div class="theme-toggle" role="group" aria-label="Theme">
+        <button data-theme-set="auto"  aria-pressed="true"  title="Follow system">A</button>
+        <button data-theme-set="light" aria-pressed="false" title="Light">☀</button>
+        <button data-theme-set="dark"  aria-pressed="false" title="Dark">☾</button>
+      </div>
+    </div>
+    <nav class="toc" id="toc"></nav>
+  </aside>
+
+  <main class="main">
+    <div class="doc">
+      <header class="masthead">
+        <div class="eyebrow">Change Brief</div>
+        <h1 id="briefTitle"></h1>
+        <div class="stamps" id="briefStamps"></div>
+      </header>
+      <div id="content"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+})();
+</script>
+</body>
+</html>

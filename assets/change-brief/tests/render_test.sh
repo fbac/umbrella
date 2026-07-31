@@ -97,10 +97,14 @@ grep -q 'cannot read spec' "$W/err.txt" && ok "  names the unreadable spec" \
 
 "$S/render.sh" "$W/spec.md" "$W/nonexistent.md" -o "$W/x.html" >/dev/null 2>"$W/err.txt"
 chk "unreadable plan exits 1" "$?" "1"
+grep -q 'cannot read plan' "$W/err.txt" && ok "  names the unreadable plan" \
+  || no "  names the unreadable plan" "$(cat "$W/err.txt")"
 [ -f "$W/x.html" ] && no "  leaves no output file" "file exists" || ok "  leaves no output file"
 
 "$S/render.sh" "$W/spec.md" -o "$W/x.html" -V "$W/novendor" >/dev/null 2>"$W/err.txt"
 chk "missing vendor exits 1" "$?" "1"
+grep -q 'missing .*marked\.min\.js' "$W/err.txt" && ok "  names the missing vendor file" \
+  || no "  names the missing vendor file" "$(cat "$W/err.txt")"
 
 echo "== render.sh: flag missing its value (defect round) =="
 for flag in -o -t -V; do
@@ -391,6 +395,21 @@ printf '\n\n\n# Blank Then Title\n\nbody\n' > "$W/blanktitle.md"
 "$S/render.sh" "$W/blanktitle.md" -o "$W/blanktitle.html" >/dev/null
 chk "title survives leading blank lines before the H1" \
   "$(title_of "$W/blanktitle.html")" "Blank Then Title"
+
+echo "== template placeholders =="
+for ph in __TITLE_B64__ __SOURCES_B64__ __GENERATED__ __DIAG_B64__ __PLANSTATE__ __VENDOR_JS__ __BRIEF_B64__; do
+  chk "$ph appears exactly once" "$(grep -c "$ph" "$S/template.html")" "1"
+done
+chk "__VENDOR_JS__ alone on its line" "$(grep -c '^__VENDOR_JS__$' "$S/template.html")" "1"
+chk "__BRIEF_B64__ alone on its line"  "$(grep -c '^__BRIEF_B64__$'  "$S/template.html")" "1"
+
+# A template with a placeholder deleted must abort, not render blank.
+grep -v '^__VENDOR_JS__$' "$S/template.html" | grep -v '__VENDOR_JS__' > "$W/tpl-missing.html"
+"$S/render.sh" "$W/s.md" -t "$W/tpl-missing.html" -o "$W/miss.html" >/dev/null 2>"$W/err.txt"
+chk "missing placeholder aborts" "$?" "1"
+grep -q 'missing __VENDOR_JS__' "$W/err.txt" && ok "  names the missing placeholder" \
+  || no "  names the missing placeholder" "$(cat "$W/err.txt")"
+[ -f "$W/miss.html" ] && no "  leaves no output file" "exists" || ok "  leaves no output file"
 
 echo
 echo "shell: $pass passed, $fail failed"
