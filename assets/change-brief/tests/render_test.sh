@@ -141,6 +141,63 @@ chk "CRLF template exits 1" "$?" "1"
 grep -qi 'crlf' "$W/err.txt" && ok "  names CRLF as the cause, not a false alone-on-its-line error" \
   || no "  names CRLF as the cause, not a false alone-on-its-line error" "$(cat "$W/err.txt")"
 
+echo "== payload assembly =="
+# Helper: decode the base64 payload out of a rendered brief.
+payload(){ python3 - "$1" <<'PY'
+import sys, re, base64
+h = open(sys.argv[1], encoding='utf-8').read()
+m = re.search(r'data-brief="([^"]*)"', h, re.S)
+sys.stdout.write(base64.b64decode(re.sub(r'\s', '', m.group(1))).decode('utf-8'))
+PY
+}
+
+printf '# Spec Title\n\n## Design\n\nbody\n' > "$W/s.md"
+printf '# Plan One\n\n### Task 1: A\n\n**Depends on:** none\n\n- [ ] step\n' > "$W/p.md"
+
+"$S/render.sh" "$W/s.md" -o "$W/g1.html" >/dev/null
+chk "gate1 payload has no H1" "$(payload "$W/g1.html" | grep -c '^# ')" "0"
+chk "gate1 payload has the sentinel Plan heading" \
+  "$(payload "$W/g1.html" | grep -c '^## Plan')" "1"
+chk "gate1 payload has the pending callout" \
+  "$(payload "$W/g1.html" | grep -c '^> \[!PENDING\]')" "1"
+
+"$S/render.sh" "$W/s.md" "$W/p.md" -o "$W/g2.html" >/dev/null
+chk "gate2 payload has no H1" "$(payload "$W/g2.html" | grep -c '^# ')" "0"
+chk "gate2 payload has no pending callout" \
+  "$(payload "$W/g2.html" | grep -c '^> \[!PENDING\]')" "0"
+chk "gate2 payload keeps the task" \
+  "$(payload "$W/g2.html" | grep -c '^### Task 1: A')" "1"
+
+# A plan with no H1 whose first fence contains a hash comment.
+printf '### Task 1: A\n\n```bash\n# Install deps first\nnpm ci\n```\n' > "$W/nh1.md"
+"$S/render.sh" "$W/s.md" "$W/nh1.md" -o "$W/nh1.html" >/dev/null
+chk "fenced hash comment survives" \
+  "$(payload "$W/nh1.html" | grep -c '^# Install deps first$')" "1"
+
+# Leading blank line, BOM, and YAML front matter must not defeat the H1 strip.
+printf '\n\n# Plan Blank\n\n### Task 1: A\n' > "$W/blank.md"
+"$S/render.sh" "$W/s.md" "$W/blank.md" -o "$W/blank.html" >/dev/null
+chk "leading blank line: H1 still stripped" "$(payload "$W/blank.html" | grep -c '^# ')" "0"
+
+printf '\xef\xbb\xbf# Plan Bom\n\n### Task 1: A\n' > "$W/bom.md"
+"$S/render.sh" "$W/s.md" "$W/bom.md" -o "$W/bom.html" >/dev/null
+chk "BOM: H1 still stripped" "$(payload "$W/bom.html" | grep -c '^# ')" "0"
+
+printf -- '---\ntitle: X\n---\n# Plan Yaml\n\n### Task 1: A\n' > "$W/yaml.md"
+"$S/render.sh" "$W/s.md" "$W/yaml.md" -o "$W/yaml.html" >/dev/null
+chk "front matter dropped, H1 stripped" "$(payload "$W/yaml.html" | grep -c '^# ')" "0"
+chk "front matter body retained" "$(payload "$W/yaml.html" | grep -c '^### Task 1: A')" "1"
+
+# A leading thematic break is NOT front matter. Consuming to EOF would delete
+# the document while still emitting a correct title and exit 0.
+printf -- '---\n\n# Real Title\n\n## Why\n\nbody\n' > "$W/rule.md"
+"$S/render.sh" "$W/rule.md" -o "$W/rule.html" >/dev/null
+chk "leading thematic break passes through" \
+  "$(payload "$W/rule.html" | grep -c '^## Why$')" "1"
+
+chk "missing output dir is created" \
+  "$("$S/render.sh" "$W/s.md" -o "$W/deep/nested/out.html" >/dev/null 2>&1; [ -f "$W/deep/nested/out.html" ] && echo yes || echo no)" "yes"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

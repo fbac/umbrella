@@ -83,3 +83,61 @@ digest() {
   elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -c1-8
   else echo "nohash"; fi
 }
+
+# ---- payload ---------------------------------------------------------------
+# Both documents' H1 is dropped: the spec's title is already the masthead, and
+# the plan's would be a second H1 mid-document. Bodies nest under a synthesized
+# "## Plan" so tasks land in the index under Plan rather than under whichever
+# H2 the spec happened to end on.
+#
+# The strip is first-line-only. A fence-unaware "first /^# / anywhere" rule
+# silently deletes a `# comment` line from a bash fence when the document has
+# no H1 — verified. Both document templates put the H1 on line 1.
+# Skip a UTF-8 BOM, leading blank lines, and a YAML front-matter block before
+# testing for the H1. All three defeat a naive NR==1 rule, and a leading blank
+# line is an ordinary editor artifact rather than a malformed document. A BOM
+# also stops CommonMark seeing the line as a heading at all, so it is removed
+# outright rather than just skipped.
+strip_bom() { sed $'1s/^\xef\xbb\xbf//' "$1"; }
+has_front_matter() {
+  head -n 1 "$1" | grep -q '^---[[:space:]]*$' || return 1
+  awk 'NR > 1 && NR <= 51 && /^---[ \t]*$/ { found = 1; exit }
+       NR > 1 && NR <= 51 && !/^[ \t]*$/ && !/^[A-Za-z_][A-Za-z0-9_.-]*:/ { exit }
+       END { exit !found }' "$1"
+}
+strip_h1() {
+  strip_bom "$1" > "$TMP/nobom.md"
+  fmflag=0
+  has_front_matter "$TMP/nobom.md" && fmflag=1
+  awk -v fm="$fmflag" '
+    BEGIN { started = 0; infm = 0; fmdone = 0 }
+    fm && !fmdone && !infm && NR == 1 && /^---[ \t]*$/ { infm = 1; next }
+    infm && /^---[ \t]*$/ { infm = 0; fmdone = 1; next }
+    infm { next }
+    !started && /^[ \t]*$/ { print; next }
+    !started { started = 1; if ($0 ~ /^ {0,3}# /) next }
+    { print }
+  ' "$TMP/nobom.md"
+}
+
+strip_h1 "$SPEC" > "$TMP/payload.md"
+# U+2060 WORD JOINER marks the heading render.sh synthesized. The page finds
+# the plan region by it and proves the parse survived. Matching a heading named
+# "Plan" is guesswork: either document may contain its own Plan section, and
+# both "first match" and "last match" misplaced the graph.
+printf '\n\n## Plan\342\201\240\n\n' >> "$TMP/payload.md"
+
+if [ -n "$PLAN" ]; then
+  strip_h1 "$PLAN" >> "$TMP/payload.md"
+  PLAN_STATE="plan attached"; PLAN_STATE_KEY="attached"
+else
+  cat >> "$TMP/payload.md" <<'PENDING'
+> [!PENDING]
+> You are reviewing the **why**, the **existing system**, and the **design** — before any
+> implementation plan exists. Changing the shape of this feature costs nothing right now.
+> After the plan is written, the same change costs a plan rewrite.
+>
+> Read the preceding sections and push back before approving.
+PENDING
+  PLAN_STATE="plan pending"; PLAN_STATE_KEY="pending"
+fi
