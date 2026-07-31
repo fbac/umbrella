@@ -100,6 +100,28 @@ printf -- '- item one\nmore text\n' > "$W/list_noheading.md"
 chk "list item without a following underline stays unchanged" \
   "$(awk -v mode=escape -f "$SC" "$W/list_noheading.md" | grep -c '^- item one$')" "1"
 
+echo "== scan.awk: bare/whitespace-only list markers (fix round) =="
+
+printf -- '-\t\n========\nmore\n' > "$W/bare_tab.md"
+chk "marker+tab+nothing+setext demotes the whole raw line (ground truth: real h1, no list)" \
+  "$(awk -v mode=escape -f "$SC" "$W/bare_tab.md" | grep -c $'^#### -\t$')" "1"
+
+printf -- '- \n========\nmore\n' > "$W/bare_space.md"
+chk "marker+space+nothing+setext left byte-identical (ground truth: no heading forms)" \
+  "$(awk -v mode=escape -f "$SC" "$W/bare_space.md")" "$(cat "$W/bare_space.md")"
+
+printf -- '-\n========\nmore\n' > "$W/bare_none.md"
+chk "bare marker with no delimiter at all left byte-identical (ground truth: no heading forms)" \
+  "$(awk -v mode=escape -f "$SC" "$W/bare_none.md")" "$(cat "$W/bare_none.md")"
+
+printf '1.\n========\nmore\n' > "$W/bare_ordered.md"
+chk "bare ordered marker (non-'-' form) with no delimiter left byte-identical" \
+  "$(awk -v mode=escape -f "$SC" "$W/bare_ordered.md")" "$(cat "$W/bare_ordered.md")"
+
+printf -- '- item one\n========\nmore\n' > "$W/guard_list.md"
+chk "normal marker+text+underline path still flattens with marker preserved (regression guard)" \
+  "$(awk -v mode=escape -f "$SC" "$W/guard_list.md" | grep -c '^- #### item one$')" "1"
+
 echo "== render.sh preconditions =="
 printf '# T\n\n## Design\n\nbody\n' > "$W/spec.md"
 

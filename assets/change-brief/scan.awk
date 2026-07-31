@@ -53,6 +53,19 @@
 #     end the four review rounds above settled. The page's structural
 #     sentinel is the accepted backstop for that residual gap.
 #
+#     Nor does it hold when the post-marker text is empty or all
+#     whitespace — "- ", "-   ", or "-" alone at end of line. Checked against
+#     the vendored parser, none of those ever produce a heading either (an
+#     empty list item or a plain paragraph, but never a promoted <h1>), so
+#     they are excluded from holding too and left untouched. A lone TAB is
+#     the one exception, and it goes the other way: marked does not accept a
+#     bare tab as a valid marker delimiter at all, so "-\t" alone is not a
+#     list item to marked — it is ordinary text, and a following "===" DOES
+#     promote it to a real <h1> that must be demoted. That line takes the
+#     plain (non-split) hold path, same as any text line. An earlier round
+#     split it anyway, which discarded the text and fabricated an empty
+#     heading inside a list marked never creates.
+#
 # Modes:
 #   -v mode=escape  emit the payload: demote stray H1s, and if -v unbalanced=1
 #                   escape line-start "<!--" outside code
@@ -167,11 +180,33 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
   # to rest once the marker is stripped. Skipping that re-test is how a
   # previous round let "- > quoted" (marker, then blockquote content) get
   # held and turned into a fabricated heading over a destroyed blockquote.
+  #
+  # A marker with EMPTY or WHITESPACE-ONLY content is not real list-item
+  # text, and the vendored parser is asymmetric about what it does with it —
+  # verified case by case, not assumed:
+  #   - "- " (space, nothing else), "-   " (spaces, nothing else), and "-"
+  #     (marker alone, no delimiter at all) never produce a heading: marked
+  #     renders an empty list item or falls back to a plain paragraph, but
+  #     the following "===" is never promoted. Nothing to demote, so these
+  #     must be left untouched rather than held.
+  #   - "-\t" (tab, nothing else) is different: marked does not recognise a
+  #     bare tab as a valid list start at all, so the ENTIRE raw line is
+  #     ordinary heading-eligible text and a following "===" DOES produce a
+  #     real <h1> over the literal text "-\t". That needs the same plain,
+  #     non-list hold as an ordinary text line — splitting it, as an earlier
+  #     round did, discarded that text and fabricated an empty heading inside
+  #     a list marked never creates.
   if (mode == "escape") {
     if (line ~ /^ {0,3}(#|>)/) { emit(line); next }
+    if (line ~ /^ {0,3}([-*+]|[0-9]+[.)])\r?$/) { emit(line); next }
     if (match(line, /^ {0,3}([-*+]|[0-9]+[.)])[ \t]/)) {
+      delim = substr(line, RSTART + RLENGTH - 1, 1)
       rest = substr(line, RSTART + RLENGTH)
       if (rest ~ /^ {0,3}(#|>)/) { emit(line); next }
+      if (rest ~ /^[ \t]*\r?$/) {
+        if (delim == "\t") { heldprefix = ""; held = line; held_set = 1; next }
+        emit(line); next
+      }
       heldprefix = substr(line, RSTART, RLENGTH)
       held = rest
       held_set = 1
