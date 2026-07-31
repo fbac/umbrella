@@ -552,6 +552,24 @@ chk "marked.use absence refuses to render" \
   "$(grep -c 'Renderer unavailable' "$S/template.html")" "1"
 chk "remote images become chips" "$(grep -c 'img-chip' "$S/template.html")" "3"
 
+echo "== template JS: inertness block is now itself contained (fix) =="
+# Task 9's block had no guard(): safe only while it was the IIFE's last
+# statement. Task 10 appends code after it, so an uncaught throw here would
+# have silently killed everything appended after it and left the page blank
+# with no banner at all -- exactly the failure this project exists to
+# prevent. Runtime behaviour (does a throwing marked.use actually surface the
+# banner?) cannot be expressed as a grep and was verified separately in a
+# real browser; these are static proxies tied to specific lines of the fix.
+chk "guarded: inertness: render payload" \
+  "$(grep -cF 'guard("inertness: render payload"' "$S/template.html")" "1"
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 8 ] && ok "at least 8 top-level sections guarded (floor raised by this fix)" \
+  || no "at least 8 top-level sections guarded (floor raised by this fix)" "$n"
+chk "rendererUnavailable is defined once, called from both the missing- and throwing-marked.use paths" \
+  "$(grep -c 'rendererUnavailable(' "$S/template.html")" "3"
+chk "a throwing marked.use is caught and reported like every other guarded section" \
+  "$(grep -c 'warn("inertness: render payload", e)' "$S/template.html")" "1"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
