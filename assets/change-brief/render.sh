@@ -153,3 +153,67 @@ else
 PENDING
   PLAN_STATE="plan pending"; PLAN_STATE_KEY="pending"
 fi
+
+# Neutralise line-start "<!--" outside fences. CommonMark HTML-block type 2
+# runs from such a line to the closing "-->" or, absent one, to EOF — so an
+# unterminated comment in prose silently deletes every section after it,
+# including the pending callout, with exit 0 and no page error. Escaping it
+# costs nothing in fidelity: raw HTML is escaped at parse time anyway, so a
+# terminated comment already rendered as literal text.
+#
+# Escaping runs ONLY when the payload actually has a dangling opener. Escaping
+# unconditionally corrupts balanced comments inside indented code samples,
+# which a spec about HTML templating will contain.
+SCAN="$(dirname "$0")/scan.awk"
+[ -r "$SCAN" ] || { echo "render.sh: missing $SCAN" >&2; exit 1; }
+
+UNBALANCED="$(awk -v mode=dangle -f "$SCAN" "$TMP/payload.md")"
+awk -v mode=diag -f "$SCAN" "$TMP/payload.md" > "$TMP/diag.txt"
+
+awk -v mode=escape -v unbalanced="$UNBALANCED" -f "$SCAN" \
+    "$TMP/payload.md" > "$TMP/payload.esc.md" && mv "$TMP/payload.esc.md" "$TMP/payload.md"
+
+while read -r w; do [ -n "$w" ] && echo "render.sh: warning: $w" >&2; done < "$TMP/diag.txt"
+
+# ---- provenance ------------------------------------------------------------
+# Hash the working-tree bytes that were actually embedded. A git blob SHA would
+# certify the committed version while the payload carries uncommitted edits.
+SOURCES="$(basename "$SPEC")@$(digest "$SPEC")"
+[ -n "$PLAN" ] && SOURCES="$SOURCES · $(basename "$PLAN")@$(digest "$PLAN")"
+SOURCES="$SOURCES · $PLAN_STATE"
+
+GENERATED="$(date -u '+%Y-%m-%d %H:%M UTC')"
+TITLE="$(strip_bom "$SPEC" | awk '/^ {0,3}# /{ sub(/^ *# */,""); print; exit }')"
+[ -n "$TITLE" ] || TITLE="$(basename "${SPEC%.md}")"
+
+# ---- encode ----------------------------------------------------------------
+# Title and sources travel as base64 too. Interpolating them into sed would
+# break on '|', swallow '\', and let '&' re-inject the matched pattern.
+b64 "$TMP/payload.md" > "$TMP/payload.b64"
+cat "$VENDOR/marked.min.js" > "$TMP/vendor.js"
+printf '\n;\n' >> "$TMP/vendor.js"
+cat "$VENDOR/mermaid.min.js" >> "$TMP/vendor.js"
+
+sed -e "s|__TITLE_B64__|$(b64s "$TITLE")|g" \
+    -e "s|__SOURCES_B64__|$(b64s "$SOURCES")|g" \
+    -e "s|__GENERATED__|$GENERATED|g" \
+    -e "s|__DIAG_B64__|$(b64 "$TMP/diag.txt")|g" \
+    -e "s|__PLANSTATE__|$PLAN_STATE_KEY|g" \
+    "$TPL" > "$TMP/step1.html"
+
+# ---- large injections ------------------------------------------------------
+# Addresses are ANCHORED. An unanchored /__VENDOR_JS__/ also matches a template
+# comment that merely mentions the placeholder, injecting the 3.3MB bundle
+# twice — verified.
+sed -e "/^__VENDOR_JS__$/{" -e "r $TMP/vendor.js" -e "d" -e "}" "$TMP/step1.html" > "$TMP/step2.html"
+sed -e "/^__BRIEF_B64__$/{"  -e "r $TMP/payload.b64" -e "d" -e "}" "$TMP/step2.html" > "$OUT"
+
+# Exact names: a generic /__[A-Z_]*__/ also matches the underscore runs inside
+# the minified vendor bundle.
+if grep -qE '__(TITLE_B64|SOURCES_B64|GENERATED|DIAG_B64|PLANSTATE|VENDOR_JS|BRIEF_B64)__' "$OUT"; then
+  die "unsubstituted placeholder remains in $OUT"
+fi
+tpl_bytes=$(wc -c < "$TPL"); out_bytes=$(wc -c < "$OUT")
+[ "$out_bytes" -gt "$tpl_bytes" ] || die "output ($out_bytes B) is not larger than template ($tpl_bytes B)"
+
+echo "$OUT"

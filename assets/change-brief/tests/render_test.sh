@@ -273,6 +273,68 @@ grep -qi 'crlf' "$W/err.txt" && ok "  names CRLF as the cause" \
 [ -f "$W/crlfspec_out.html" ] && no "  CRLF spec leaves no output file" "file exists" \
   || ok "  CRLF spec leaves no output file"
 
+echo "== diagnostics, provenance, injection =="
+printf '# Hostile | Title & <redesign> "x" \\ y\n\n## Why\n\nbody\n' > "$W/host.md"
+"$S/render.sh" "$W/host.md" -o "$W/host.html" >/dev/null
+title=$(python3 - "$W/host.html" <<'PY'
+import sys, re, base64
+h = open(sys.argv[1], encoding='utf-8').read()
+print(base64.b64decode(re.search(r'data-title="([^"]*)"', h).group(1)).decode('utf-8'))
+PY
+)
+chk "hostile title round-trips" "$title" 'Hostile | Title & <redesign> "x" \ y'
+chk "hostile title never appears as raw markup" \
+  "$(grep -c '<redesign>' "$W/host.html")" "0"
+
+printf '## No H1 Here\n\nbody\n' > "$W/noh1.md"
+"$S/render.sh" "$W/noh1.md" -o "$W/noh1.html" >/dev/null
+title=$(python3 - "$W/noh1.html" <<'PY'
+import sys, re, base64
+h = open(sys.argv[1], encoding='utf-8').read()
+print(base64.b64decode(re.search(r'data-title="([^"]*)"', h).group(1)).decode('utf-8'))
+PY
+)
+chk "title falls back to the basename" "$title" "noh1"
+
+chk "no placeholder survives" \
+  "$(grep -cE '__(TITLE_B64|SOURCES_B64|GENERATED|DIAG_B64|PLANSTATE|VENDOR_JS|BRIEF_B64)__' "$W/g1.html")" "0"
+tb=$(wc -c < "$S/template.html"); ob=$(wc -c < "$W/g1.html")
+[ "$ob" -gt "$tb" ] && ok "output larger than template" || no "output larger than template" "$ob <= $tb"
+
+chk "vendor injected exactly once" \
+  "$(grep -c 'marked v12\.0\.2' "$W/g1.html")" "1"
+
+chk "plan-state attached" \
+  "$(grep -c 'data-plan-state="attached"' "$W/g2.html")" "1"
+chk "plan-state pending" \
+  "$(grep -c 'data-plan-state="pending"' "$W/g1.html")" "1"
+
+# Provenance: identical bytes give identical digests, changed bytes differ.
+"$S/render.sh" "$W/s.md" -o "$W/d1.html" >/dev/null
+d1=$(grep -o 'data-sources="[^"]*"' "$W/d1.html")
+printf '# Spec Title\n\n## Design\n\nbody changed\n' > "$W/s2.md"
+"$S/render.sh" "$W/s2.md" -o "$W/d2.html" >/dev/null
+d2=$(grep -o 'data-sources="[^"]*"' "$W/d2.html")
+[ "$d1" != "$d2" ] && ok "provenance changes with source bytes" \
+  || no "provenance changes with source bytes" "identical"
+
+# Idempotent apart from the generation timestamp.
+"$S/render.sh" "$W/s.md" -o "$W/i1.html" >/dev/null
+"$S/render.sh" "$W/s.md" -o "$W/i2.html" >/dev/null
+if diff <(sed 's/data-generated="[^"]*"/X/' "$W/i1.html") \
+        <(sed 's/data-generated="[^"]*"/X/' "$W/i2.html") >/dev/null; then
+  ok "renders are idempotent apart from the timestamp"
+else
+  no "renders are idempotent apart from the timestamp" "differ"
+fi
+
+printf '# T\n\n## D\n\n```bash\necho hi\n' > "$W/openf.md"
+"$S/render.sh" "$W/openf.md" -o "$W/openf.html" 2>"$W/warn.txt" >/dev/null
+grep -q 'Unterminated code fence' "$W/warn.txt" && ok "unterminated fence warns on stderr" \
+  || no "unterminated fence warns on stderr" "$(cat "$W/warn.txt")"
+"$S/render.sh" "$W/s.md" -o "$W/clean.html" 2>"$W/warn2.txt" >/dev/null
+chk "clean document warns nothing" "$(wc -c < "$W/warn2.txt" | tr -d ' ')" "0"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
