@@ -478,6 +478,48 @@ else
   no "real spec+plan payload decodes with the sentinel present" "fixture not present"
 fi
 
+echo "== template JS: failure containment (one bad attribute or a throwing localStorage must not blank the page) =="
+# These are static proxies for a runtime fix -- whether the page actually
+# degrades gracefully cannot be expressed as a grep (there is no JS engine
+# in this suite), so it was verified separately in a real browser. Each
+# assertion below is tied to a specific line of the fix, not to loose
+# vocabulary ("does the file mention guard somewhere"), because this suite
+# has already had five separate false-passing-assertion incidents -- most
+# recently a '^## Plan' check that matched three unrelated headings instead
+# of the one byte-exact sentinel line.
+
+chk "guard() containment helper is defined" \
+  "$(grep -c 'function guard(label, fn)' "$S/template.html")" "1"
+chk "guard() catches and reports rather than rethrowing" \
+  "$(grep -c 'try { fn(); } catch (e) { warn(label, e); }' "$S/template.html")" "1"
+chk "safeDecode() helper is defined" \
+  "$(grep -c 'function safeDecode(b64, label)' "$S/template.html")" "1"
+chk "safeDecode() catches and reports rather than rethrowing" \
+  "$(grep -c 'catch (e) { warn(label, e); return "";' "$S/template.html")" "1"
+
+chk "title decode now routes through safeDecode" \
+  "$(grep -c 'safeDecode(document.body.dataset.title,' "$S/template.html")" "1"
+chk "title decode no longer calls decodeB64 directly and unguarded" \
+  "$(grep -c 'decodeB64(document.body.dataset.title)' "$S/template.html")" "0"
+chk "sources decode now routes through safeDecode" \
+  "$(grep -c 'safeDecode(document.body.dataset.sources,' "$S/template.html")" "1"
+chk "sources decode no longer calls decodeB64 directly and unguarded" \
+  "$(grep -c 'decodeB64(document.body.dataset.sources)' "$S/template.html")" "0"
+
+chk "stored theme value is validated against the known set before use" \
+  "$(grep -c 'THEMES.indexOf(stored) !== -1' "$S/template.html")" "1"
+chk "reading the stored theme preference is wrapped in guard()" \
+  "$(grep -c 'guard("theme: read stored preference"' "$S/template.html")" "1"
+chk "persisting the theme choice is wrapped in guard() (setItem can throw)" \
+  "$(grep -c 'guard("theme: persist preference"' "$S/template.html")" "1"
+chk "applyTheme() still runs immediately after the guarded persist attempt" \
+  "$(grep -A2 'localStorage.setItem("brief-theme", pref);' "$S/template.html" | grep -c 'applyTheme();')" "1"
+
+chk "payload decode failure is reported to the console like the other sections" \
+  "$(grep -c 'warn("payload decode", e)' "$S/template.html")" "1"
+chk "exactly seven top-level sections are guarded (theme x5, masthead x2)" \
+  "$(grep -c 'guard("' "$S/template.html")" "7"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

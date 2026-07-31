@@ -235,10 +235,38 @@ __BRIEF_B64__
     return new TextDecoder("utf-8").decode(bytes);
   }
 
+  /* ---------- failure containment ----------
+     A rendered brief is opened by a persona with no repo and no context --
+     often a webmail preview pane, a DLP sandbox, or a storage-restricted
+     viewer. One bad attribute or a throwing localStorage must never blank
+     the rest of the page: a file that opens blank looks like a render that
+     succeeded, which is worse than no file at all.
+
+     Pattern for Tasks 9-14: wrap every new top-level section in guard()
+     with its own descriptive label, and route every base64 decode that
+     isn't already locally try/caught through safeDecode() instead of
+     calling decodeB64() directly. A throw in one section is reported to
+     the console and must never prevent later sections from running. */
+  function warn(label, e){
+    if (window.console && console.error) console.error("[change-brief] " + label + " failed:", e);
+  }
+  function guard(label, fn){
+    try { fn(); } catch (e) { warn(label, e); }
+  }
+  function safeDecode(b64, label){
+    try { return decodeB64(b64); }
+    catch (e) { warn(label, e); return ""; }
+  }
+
   /* ---------- theme (pure CSS switch, no diagram re-render) ---------- */
   var root = document.documentElement;
   var mq = window.matchMedia("(prefers-color-scheme: dark)");
-  var pref = localStorage.getItem("brief-theme") || "auto";
+  var THEMES = ["auto", "light", "dark"];
+  var pref = "auto";
+  guard("theme: read stored preference", function(){
+    var stored = localStorage.getItem("brief-theme");
+    if (THEMES.indexOf(stored) !== -1) pref = stored;
+  });
   function resolved(){ return pref === "auto" ? (mq.matches ? "dark" : "light") : pref; }
   function applyTheme(){
     root.setAttribute("data-theme", resolved());
@@ -246,35 +274,45 @@ __BRIEF_B64__
       b.setAttribute("aria-pressed", String(b.dataset.themeSet === pref));
     });
   }
-  Array.prototype.forEach.call(document.querySelectorAll("[data-theme-set]"), function(b){
-    b.addEventListener("click", function(){
-      pref = b.dataset.themeSet;
-      localStorage.setItem("brief-theme", pref);
-      applyTheme();
+  guard("theme: wire controls", function(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-theme-set]"), function(b){
+      b.addEventListener("click", function(){
+        pref = b.dataset.themeSet;
+        guard("theme: persist preference", function(){
+          localStorage.setItem("brief-theme", pref);
+        });
+        applyTheme();
+      });
     });
   });
-  mq.addEventListener("change", function(){ if (pref === "auto") applyTheme(); });
-  applyTheme();
+  guard("theme: attach system-preference listener", function(){
+    mq.addEventListener("change", function(){ if (pref === "auto") applyTheme(); });
+  });
+  guard("theme: apply initial", applyTheme);
 
   /* ---------- masthead (base64 in, textContent out: no injection path) ---------- */
-  var title = decodeB64(document.body.dataset.title) || "Change Brief";
-  document.getElementById("briefTitle").textContent = title;
-  document.title = title + " — Change Brief";
-  var stamps = document.getElementById("briefStamps");
-  [ "generated " + (document.body.dataset.generated || "unknown"),
-    decodeB64(document.body.dataset.sources) ]
-    .filter(Boolean)
-    .forEach(function(t){
-      var s = document.createElement("span");
-      s.className = "stamp";
-      s.textContent = t;
-      stamps.appendChild(s);
-    });
+  var title = safeDecode(document.body.dataset.title, "masthead: title decode") || "Change Brief";
+  guard("masthead: apply title", function(){
+    document.getElementById("briefTitle").textContent = title;
+    document.title = title + " — Change Brief";
+  });
+  guard("masthead: stamps", function(){
+    var stamps = document.getElementById("briefStamps");
+    [ "generated " + (document.body.dataset.generated || "unknown"),
+      safeDecode(document.body.dataset.sources, "masthead: sources decode") ]
+      .filter(Boolean)
+      .forEach(function(t){
+        var s = document.createElement("span");
+        s.className = "stamp";
+        s.textContent = t;
+        stamps.appendChild(s);
+      });
+  });
 
   /* ---------- payload ---------- */
   var md;
   try { md = decodeB64(document.body.dataset.brief); }
-  catch (e) { md = "## Payload decode failed\n\n`" + String(e) + "`"; }
+  catch (e) { warn("payload decode", e); md = "## Payload decode failed\n\n`" + String(e) + "`"; }
 
   var content = document.getElementById("content");
 
