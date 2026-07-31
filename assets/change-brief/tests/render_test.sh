@@ -411,6 +411,13 @@ grep -q 'missing __VENDOR_JS__' "$W/err.txt" && ok "  names the missing placehol
   || no "  names the missing placeholder" "$(cat "$W/err.txt")"
 [ -f "$W/miss.html" ] && no "  leaves no output file" "exists" || ok "  leaves no output file"
 
+echo "== template JS: decode and masthead =="
+chk "decodeB64 helper present" "$(grep -c 'function decodeB64' "$S/template.html")" "1"
+chk "title written with textContent" \
+  "$(grep -c 'briefTitle").textContent = title' "$S/template.html")" "1"
+chk "theme persisted to localStorage" \
+  "$(grep -c "localStorage.setItem(\"brief-theme\"" "$S/template.html")" "1"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
