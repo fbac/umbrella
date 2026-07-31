@@ -412,6 +412,39 @@ __BRIEF_B64__
       rendererUnavailable("marked.use threw while neutralising payload HTML, so rendering was aborted. Refusing to render.");
     }
   });
+
+  /* Structural integrity, asserted against the DOM the reader actually sees.
+     A source-side heading count cannot work: it requires a second CommonMark
+     implementation, and every divergence between the two is either a false
+     alarm or silent loss. render.sh always appends a sentinel-marked Plan
+     heading, so its absence proves content was lost — by an unterminated
+     comment, an unterminated fence, an HTML block, a front-matter misparse, or
+     any cause nobody has thought of yet. */
+  var PLAN_MARK = "\u2060";
+  var planH2 = Array.prototype.filter.call(content.querySelectorAll("h2"), function(h){
+    return h.textContent.indexOf(PLAN_MARK) !== -1;
+  })[0];
+
+  if (planH2) {
+    planH2.textContent = planH2.textContent.replace(PLAN_MARK, "");
+  } else {
+    banner("Content lost during rendering",
+      "The Plan section this brief always ends with did not survive parsing, so " +
+      "an unknown amount of content is missing. Do not review from this page — " +
+      "check the markdown source.");
+  }
+
+  if (planH2 && document.body.dataset.planState === "pending" &&
+      !content.querySelector("blockquote, .callout")) {
+    banner("Pending notice missing",
+      "This brief was rendered before the plan was written, but the notice " +
+      "saying so did not render. Treat the Plan section as unwritten.");
+  }
+
+  /* Warnings render.sh detected before parsing. */
+  decodeB64(document.body.dataset.diag).split("\n").forEach(function(w){
+    if (w.trim()) banner("Source problem", w.trim());
+  });
 })();
 </script>
 </body>

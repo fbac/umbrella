@@ -590,6 +590,15 @@ chk "rendererUnavailable is defined once, called from both the missing- and thro
 chk "a throwing marked.use is caught and reported like every other guarded section" \
   "$(grep -c 'warn("inertness: render payload", e)' "$S/template.html")" "1"
 
+echo "== template JS: structural integrity =="
+chk "sentinel constant present" "$(grep -cF 'PLAN_MARK = "\u2060"' "$S/template.html")" "1"
+chk "content-lost banner present" \
+  "$(grep -c 'Content lost during rendering' "$S/template.html")" "1"
+chk "render.sh warnings surface as banners" \
+  "$(grep -c 'Source problem' "$S/template.html")" "1"
+chk "no source-side heading count remains" \
+  "$(grep -c 'data-headings' "$S/template.html")" "0"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
