@@ -357,11 +357,16 @@ __BRIEF_B64__
       t.innerHTML = String(s || "");
       return t.value;
     }
-    function safeHref(raw){
+    function normalizeHref(raw){
       // Backslashes are normalised to "/" BEFORE the check. For special schemes
       // (file: among them) the WHATWG URL parser treats "\" as "/", so "/\host"
       // is an equivalent spelling of "//host" and reaches the same remote host.
-      var h = decodeEntities(raw).replace(/[\u0000-\u0020\u007f]/g, "").replace(/\\/g, "/");
+      // The renderer below embeds THIS normalized value, not the raw input --
+      // validating one string and embedding a different one is how a check
+      // and its embed can silently drift apart.
+      return decodeEntities(raw).replace(/[\u0000-\u0020\u007f]/g, "").replace(/\\/g, "/");
+    }
+    function safeHref(h){
       // "//host/x" has no scheme but is not document-relative: it resolves to
       // file://host/x, which on Windows is a UNC path and a click attempts an
       // SMB connection to an attacker-chosen host.
@@ -395,8 +400,9 @@ __BRIEF_B64__
         link: function(token){
           var href = (token && typeof token === "object") ? token.href : arguments[0];
           var text = (token && typeof token === "object") ? (token.text || "") : (arguments[2] || "");
-          if (!safeHref(href)) return esc(text) + " (" + esc(href) + ")";
-          return '<a href="' + esc(href) + '" rel="noopener noreferrer">' + esc(text) + "</a>";
+          var h = normalizeHref(href || "");
+          if (!safeHref(h)) return esc(text) + " (" + esc(href) + ")";
+          return '<a href="' + esc(h) + '" rel="noopener noreferrer">' + esc(text) + "</a>";
         }
       } });
 

@@ -552,6 +552,26 @@ chk "marked.use absence refuses to render" \
   "$(grep -c 'Renderer unavailable' "$S/template.html")" "1"
 chk "remote images become chips" "$(grep -c 'img-chip' "$S/template.html")" "3"
 
+echo "== template JS: safeHref check and embed now use the same value (fix) =="
+# safeHref used to validate decodeEntities(raw) but the link renderer embedded
+# esc(href) -- the original, undecoded string. The check and the embed
+# operated on different values; inert only because decode_once(esc(raw)) ===
+# raw is an algebraic identity for the untampered case, not because the
+# check and the embed agreed. Repro (verified separately in a real browser):
+#   [x](&amp;#106;avascript:window.__PWNED__='x')
+# Fix: normalizeHref() produces one normalized value; safeHref() validates it
+# and the renderer embeds that same value, not the raw input.
+chk "normalizeHref helper exists and does the normalising, separately from the boolean check" \
+  "$(grep -c 'function normalizeHref(raw)' "$S/template.html")" "1"
+chk "safeHref now validates an already-normalized value, not a raw one" \
+  "$(grep -c 'function safeHref(h)' "$S/template.html")" "1"
+chk "link renderer computes the normalized value once, before validating it" \
+  "$(grep -c 'var h = normalizeHref(href || "");' "$S/template.html")" "1"
+chk "link renderer no longer embeds the raw undecoded href (image chip + rejected-link text still legitimately do)" \
+  "$(grep -c -- '+ esc(href) +' "$S/template.html")" "2"
+chk "anchor href is built from esc(h) -- the same normalized value safeHref validated" \
+  "$(grep -c -- '+ esc(h) +' "$S/template.html")" "1"
+
 echo "== template JS: inertness block is now itself contained (fix) =="
 # Task 9's block had no guard(): safe only while it was the IIFE's last
 # statement. Task 10 appends code after it, so an uncaught throw here would
