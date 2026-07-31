@@ -28,6 +28,40 @@ got_sha=$(shasum -a 256 "$S/vendor/mermaid.min.js" 2>/dev/null | cut -d' ' -f1)
 chk "mermaid sha256 pinned" "$got_sha" \
   "61b335a46df05a7ce1c98378f60e5f3e77a7fb608a1056997e8a649304a936d6"
 
+echo "== scan.awk =="
+SC="$S/scan.awk"
+
+printf '# Title\n\nbody\n\n# Stray H1\n\nmore\n' > "$W/h1.md"
+chk "stray ATX H1 flattened to h4" \
+  "$(awk -v mode=escape -f "$SC" "$W/h1.md" | grep -c '^#### ')" "2"
+
+printf 'Setext Heading\n==============\n\nbody\n' > "$W/setext.md"
+chk "setext H1 flattened to h4" \
+  "$(awk -v mode=escape -f "$SC" "$W/setext.md" | grep -c '^#### Setext Heading$')" "1"
+
+printf 'text\n\n<!-- never closed\n\n## Later\n' > "$W/dangle.md"
+chk "dangling comment detected" "$(awk -v mode=dangle -f "$SC" "$W/dangle.md")" "1"
+chk "dangling comment escaped with indent intact" \
+  "$(awk -v mode=escape -v unbalanced=1 -f "$SC" "$W/dangle.md" | grep -c '^&lt;!--')" "1"
+
+printf 'text\n\n--> stray arrow in prose\n\n<!-- never closed\n' > "$W/order.md"
+chk "stray --> does not balance a later opener" \
+  "$(awk -v mode=dangle -f "$SC" "$W/order.md")" "1"
+
+printf 'a\n\n```html\n<!-- balanced -->\n```\n\nb\n' > "$W/fenced.md"
+chk "comment inside a fence is not escaped" \
+  "$(awk -v mode=escape -v unbalanced=1 -f "$SC" "$W/fenced.md" | grep -c '^&lt;!--')" "0"
+
+printf -- '- step:\n\n  ```html\n  <!-- keep -->\n  ```\n' > "$W/indent.md"
+chk "indented fence comment keeps its indentation" \
+  "$(awk -v mode=escape -v unbalanced=1 -f "$SC" "$W/indent.md" | grep -c '^  <!-- keep -->$')" "1"
+
+printf 'a\n\n```bash\necho hi\n' > "$W/openfence.md"
+chk "unterminated fence reported" \
+  "$(awk -v mode=diag -f "$SC" "$W/openfence.md" | grep -c 'Unterminated code fence')" "1"
+chk "clean document produces no diagnostics" \
+  "$(awk -v mode=diag -f "$SC" "$W/fenced.md" | wc -l | tr -d ' ')" "0"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
