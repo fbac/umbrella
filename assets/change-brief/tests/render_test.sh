@@ -62,6 +62,30 @@ chk "unterminated fence reported" \
 chk "clean document produces no diagnostics" \
   "$(awk -v mode=diag -f "$SC" "$W/fenced.md" | wc -l | tr -d ' ')" "0"
 
+echo "== scan.awk: CRLF + list lazy setext (fix round) =="
+
+printf 'Heading\r\n=======\r\n\r\nbody\r\n' > "$W/crlf.md"
+chk "CRLF setext H1 flattened to h4" \
+  "$(awk -v mode=escape -f "$SC" "$W/crlf.md" | grep -c '^#### Heading')" "1"
+
+printf -- '- item one\n========\nmore\n' > "$W/list_bullet.md"
+chk "bullet list lazy setext flattened, marker preserved" \
+  "$(awk -v mode=escape -f "$SC" "$W/list_bullet.md" | grep -c '^- #### item one$')" "1"
+
+printf '1. item one\n========\nmore\n' > "$W/list_ordered.md"
+chk "ordered list lazy setext flattened, marker preserved" \
+  "$(awk -v mode=escape -f "$SC" "$W/list_ordered.md" | grep -c '^1\. #### item one$')" "1"
+
+printf '> quoted\n===\n' > "$W/bq.md"
+chk "blockquote setext-lookalike NOT flattened" \
+  "$(awk -v mode=escape -f "$SC" "$W/bq.md" | grep -c '^> quoted$')" "1"
+chk "blockquote setext-lookalike underline left intact" \
+  "$(awk -v mode=escape -f "$SC" "$W/bq.md" | grep -c '^===$')" "1"
+
+printf -- '- item one\nmore text\n' > "$W/list_noheading.md"
+chk "list item without a following underline stays unchanged" \
+  "$(awk -v mode=escape -f "$SC" "$W/list_noheading.md" | grep -c '^- item one$')" "1"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

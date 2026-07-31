@@ -12,7 +12,30 @@
 # catches every cause of content loss rather than the ones awk can model.
 #
 # What remains here is only what the page cannot do, because it happens before
-# parsing: neutralising a dangling HTML comment, and flattening stray H1s.
+# parsing: neutralising a dangling HTML comment, and flattening stray H1s —
+# both ATX ("# Title") and setext ("Title\n=====").
+#
+# Two things the setext path must also get right, both verified against the
+# vendored marked v12.0.2 (the sole authority for what counts as a heading
+# here, not this file's reading of the CommonMark spec):
+#
+#   - CRLF line endings. A setext underline or blank line ending in "\r" used
+#     to fall outside the end-anchored [ \t]* character classes below, so a
+#     "=======\r" was never recognised as an underline and the H1 it should
+#     have demoted reached the DOM intact. Fixed by admitting \r into those
+#     classes; ATX flattening and the fence-close marker check needed no such
+#     fix because they anchor only at line start.
+#
+#   - List-item lazy continuation. CommonMark lets a list item's first line
+#     be promoted to a heading by a bare "===" right after it — "- text\n==="
+#     renders <li><h1>text</h1>...</li> — because the marker prefix does not
+#     stop the setext underline from lazily continuing the item's paragraph.
+#     Blockquotes were checked and do NOT get this treatment ("> text\n==="
+#     stays a paragraph), so "#" and ">" remain excluded from holding
+#     entirely. A list-item line IS held, but split into its marker prefix
+#     and text so demotion can keep the prefix and rewrite only the text —
+#     "- text" + "===" becomes "- #### text", never "#### - text", which
+#     would destroy the list structure.
 #
 # Modes:
 #   -v mode=escape  emit the payload: demote stray H1s, and if -v unbalanced=1
@@ -34,12 +57,15 @@ function marker_of(line,   m) {
   return ""
 }
 
-# Flush the one-line lookback buffer used for setext detection.
+# Flush the one-line lookback buffer used for setext detection. held_set (not
+# "held != ''") is the sentinel: a list-item line whose text-after-marker is
+# itself empty (e.g. a bare "- ") legitimately holds an empty string, and
+# testing held != "" would treat that as "nothing held" and drop the line.
 function flush(   p) {
-  if (held != "") { p = held; held = ""; emit(p) }
+  if (held_set) { p = heldprefix held; held_set = 0; heldprefix = ""; held = ""; emit(p) }
 }
 
-BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "" }
+BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = ""; heldprefix = ""; held_set = 0 }
 
 {
   line = $0
@@ -47,10 +73,15 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
   # ---- setext H1: a run of "=" under a non-blank line ----------------------
   # Demoted like ATX H1s. The ATX regex cannot see these, so a setext H1
   # reaches the DOM as a real <h1>, opening an index group the h2/h3 builder
-  # never renders — leaving that whole section unreachable.
-  if (fchar == "" && !incode && held != "" && line ~ /^ {0,3}=+[ \t]*$/) {
-    emit("#### " held)
-    held = ""
+  # never renders — leaving that whole section unreachable. The trailing
+  # [ \t\r]* (not [ \t]*) admits a CRLF underline: without \r in the class, an
+  # "=======\r" line was never recognised as an underline and the H1 above it
+  # reached the DOM unflattened. heldprefix carries a list marker through the
+  # demotion (see below); it is "" for a plain held text line, so this is a
+  # no-op change for the non-list case.
+  if (fchar == "" && !incode && held_set && line ~ /^ {0,3}=+[ \t\r]*$/) {
+    emit(heldprefix "#### " held)
+    held = ""; heldprefix = ""; held_set = 0
     next
   }
 
@@ -60,7 +91,7 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
     flush()
     ch = substr(m, 1, 1); len = length(m)
     if (fchar == "") { fchar = ch; flen = len; prevblank = 0; incode = 0; emit(line); next }
-    if (ch == fchar && len >= flen && line ~ /^ {0,3}(`+|~+)[ \t]*$/) {
+    if (ch == fchar && len >= flen && line ~ /^ {0,3}(`+|~+)[ \t\r]*$/) {
       fchar = ""; flen = 0; prevblank = 0; emit(line); next
     }
     prevblank = 0; emit(line); next
@@ -68,7 +99,10 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
 
   if (fchar != "") { flush(); emit(line); next }
 
-  if (line ~ /^[ \t]*$/) { flush(); prevblank = 1; incode = 0; emit(line); next }
+  # \r admitted here too: a CRLF blank line's record is "\r", not "", and
+  # without \r in the class it read as ordinary text — eligible to be held as
+  # setext content — rather than as the blank line it actually is.
+  if (line ~ /^[ \t\r]*$/) { flush(); prevblank = 1; incode = 0; emit(line); next }
 
   if ((prevblank || incode) && line ~ /^(    |\t)/) {
     flush(); incode = 1; prevblank = 0; emit(line); next
@@ -101,8 +135,26 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
   if (unbalanced && line ~ /^ {0,3}<!--/) sub(/<!--/, "\\&lt;!--", line)
 
   # Hold non-blank lines one line back so the next line can turn them into a
-  # setext heading. Only text lines can be setext content.
-  if (mode == "escape" && line !~ /^ {0,3}(#|>|[-*+] |[0-9]+[.)] )/) { held = line; next }
+  # setext heading. An ATX line ("#") or blockquote line (">") is never
+  # setext content and is excluded from holding entirely — confirmed against
+  # the vendored parser: "> text\n===" stays a quoted paragraph, not a
+  # heading. A list-item line ("- text", "1. text") IS eligible (CommonMark
+  # lazy continuation), but is split into heldprefix (the marker, verbatim,
+  # including its 0-3 leading spaces) and held (the text after it), so a
+  # later setext underline demotes only the text — "- text" becomes
+  # "- #### text", keeping the list structure — while a flush() with no
+  # heading reassembles heldprefix held back into the original line.
+  if (mode == "escape") {
+    if (line ~ /^ {0,3}(#|>)/) { emit(line); next }
+    if (match(line, /^ {0,3}([-*+] |[0-9]+[.)] )/)) {
+      heldprefix = substr(line, RSTART, RLENGTH)
+      held = substr(line, RSTART + RLENGTH)
+      held_set = 1
+      next
+    }
+    heldprefix = ""; held = line; held_set = 1
+    next
+  }
   emit(line)
 }
 
