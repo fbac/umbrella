@@ -418,6 +418,66 @@ chk "title written with textContent" \
 chk "theme persisted to localStorage" \
   "$(grep -c "localStorage.setItem(\"brief-theme\"" "$S/template.html")" "1"
 
+echo "== large document does not trigger a SIGPIPE abort (pipe-buffer regression) =="
+# Every fixture above this line is small enough to stay under any plausible
+# OS pipe-buffer size, which is exactly why this suite passed while
+# first_content_line could still SIGPIPE render.sh to death on this project's
+# own ~48KB spec. 2400 real (non-repeating) body lines comfortably clears
+# even a generous 64KB buffer, so the assertion stays meaningful even if
+# buffer sizes differ across platforms.
+{
+  printf '# Large Spec Title\n\n## Section\n\n'
+  i=1
+  while [ "$i" -le 2400 ]; do
+    printf 'This is body line %d of a synthetic large spec used to exceed the OS pipe buffer.\n' "$i"
+    i=$((i + 1))
+  done
+} > "$W/large.md"
+large_bytes=$(wc -c < "$W/large.md" | tr -d ' ')
+[ "$large_bytes" -gt 100000 ] && ok "synthetic large spec exceeds 100KB (test stays meaningful across platforms)" \
+  || no "synthetic large spec exceeds 100KB (test stays meaningful across platforms)" "only ${large_bytes}B"
+"$S/render.sh" "$W/large.md" -o "$W/large.html" >/dev/null 2>"$W/large_err.txt"
+rc=$?
+chk "large spec (${large_bytes}B) renders instead of SIGPIPE-aborting" "$rc" "0"
+if [ "$rc" -eq 0 ] && [ -s "$W/large.html" ]; then
+  chk "large spec output has no unsubstituted placeholder" \
+    "$(grep -cE '__(TITLE_B64|SOURCES_B64|GENERATED|DIAG_B64|PLANSTATE|VENDOR_JS|BRIEF_B64)__' "$W/large.html")" "0"
+  chk "large spec title is correct, not lost to a truncated render" \
+    "$(payload "$W/large.html" | grep -c '^## Section$')" "1"
+  chk "large spec payload keeps its very last body line intact" \
+    "$(payload "$W/large.html" | grep -c '^This is body line 2400 of')" "1"
+else
+  no "large spec output has no unsubstituted placeholder" "render failed: $(cat "$W/large_err.txt")"
+  no "large spec title is correct, not lost to a truncated render" "render failed: $(cat "$W/large_err.txt")"
+  no "large spec payload keeps its very last body line intact" "render failed: $(cat "$W/large_err.txt")"
+fi
+
+echo "== renders this repository's own real spec and plan (the regression that mattered) =="
+# Every fixture above is synthetic. These are the actual documents render.sh
+# exists to render, present in every checkout — using them here is what would
+# have caught the SIGPIPE regression immediately instead of shipping it.
+REALSPEC="$R/docs/specs/2026-07-27-visual-change-briefs-design.md"
+REALPLAN="$R/docs/plans/2026-07-30-visual-change-briefs.md"
+if [ -s "$REALSPEC" ] && [ -s "$REALPLAN" ]; then
+  "$S/render.sh" "$REALSPEC" "$REALPLAN" -o "$W/real.html" >/dev/null 2>"$W/real_err.txt"
+  rc=$?
+  chk "real spec+plan render exits 0 instead of SIGPIPE (141)" "$rc" "0"
+  if [ "$rc" -eq 0 ] && [ -s "$W/real.html" ]; then
+    # The sentinel is "## Plan" plus a trailing U+2060 WORD JOINER on its own
+    # line. A plain '^## Plan' match is not enough: the real plan document
+    # has its own "## Plan" and "## Plan blocks" headings, so only the
+    # byte-exact sentinel line proves the parse structure survived.
+    chk "real spec+plan payload decodes with the sentinel present" \
+      "$(payload "$W/real.html" | grep -c $'^## Plan\xe2\x81\xa0$')" "1"
+  else
+    no "real spec+plan payload decodes with the sentinel present" "render failed: $(cat "$W/real_err.txt")"
+  fi
+else
+  no "real spec+plan render exits 0 instead of SIGPIPE (141)" \
+    "fixture not present: $REALSPEC or $REALPLAN missing/empty"
+  no "real spec+plan payload decodes with the sentinel present" "fixture not present"
+fi
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

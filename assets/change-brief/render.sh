@@ -127,6 +127,15 @@ has_front_matter() {
 # — the same class of bug the comment at the top of this section documents
 # for strip_h1 itself. A single shared implementation is the fix; a third
 # independent copy would only drift again.
+#
+# Writes to $TMP/preamble.md rather than stdout. first_content_line below
+# used to consume this over a pipe and `exit` after its first match; on a
+# document past a few hundred lines that leaves this writer still pushing
+# bytes into a pipe nobody is reading once the OS buffer fills, which is
+# SIGPIPE — fatal under this script's `set -o pipefail` — and it is exactly
+# what this project's own ~48KB spec triggered. A real file has no reader to
+# outrun: whoever reads it, and however much of it they read, this function
+# has already finished writing by the time they start.
 skip_preamble() {
   strip_bom "$1" > "$TMP/nobom.md"
   fmflag=0
@@ -137,17 +146,20 @@ skip_preamble() {
     infm && /^---[ \t]*$/ { infm = 0; fmdone = 1; next }
     infm { next }
     { print }
-  ' "$TMP/nobom.md"
+  ' "$TMP/nobom.md" > "$TMP/preamble.md"
 }
 # The exact first non-blank line strip_h1 examines to decide whether to drop
-# an H1 — or nothing, if the document is empty past the preamble.
-first_content_line() { skip_preamble "$1" | awk '/^[ \t]*$/ { next } { print; exit }'; }
+# an H1 — or nothing, if the document is empty past the preamble. Reads the
+# file skip_preamble just finished writing; no pipe, so its own early `exit`
+# cannot orphan a writer.
+first_content_line() { skip_preamble "$1"; awk '/^[ \t]*$/ { next } { print; exit }' "$TMP/preamble.md"; }
 strip_h1() {
-  skip_preamble "$1" | awk '
+  skip_preamble "$1"
+  awk '
     !started && /^[ \t]*$/ { print; next }
     !started { started = 1; if ($0 ~ /^ {0,3}# /) next }
     { print }
-  '
+  ' "$TMP/preamble.md"
 }
 
 strip_h1 "$SPEC" > "$TMP/payload.md"
