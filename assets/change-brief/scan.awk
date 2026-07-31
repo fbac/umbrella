@@ -31,11 +31,27 @@
 #     renders <li><h1>text</h1>...</li> — because the marker prefix does not
 #     stop the setext underline from lazily continuing the item's paragraph.
 #     Blockquotes were checked and do NOT get this treatment ("> text\n==="
-#     stays a paragraph), so "#" and ">" remain excluded from holding
-#     entirely. A list-item line IS held, but split into its marker prefix
-#     and text so demotion can keep the prefix and rewrite only the text —
-#     "- text" + "===" becomes "- #### text", never "#### - text", which
-#     would destroy the list structure.
+#     stays a paragraph), so "#" and ">" remain excluded from holding — but
+#     that exclusion has to be tested against the text AFTER the marker is
+#     stripped, not the raw line: "- > quoted" starts with "-", so testing
+#     the raw line missed it, held it anyway, and fabricated a heading over
+#     what should stay a blockquote — a real regression from an earlier
+#     round, fixed by re-testing the post-marker text before holding.
+#
+#     A list-item line IS held — split into its marker prefix (kept verbatim,
+#     including a tab as well as a space after the bullet/number, since
+#     CommonMark accepts either as marker-following whitespace) and the text
+#     after it — so demotion keeps the prefix and rewrites only the text:
+#     "- text" + "===" becomes "- #### text", not "#### - text", which would
+#     destroy the list structure. That guarantee holds ONLY when the
+#     post-marker text does not itself start with "#" or ">"; when it does
+#     (e.g. "- # nested heading"), the line is excluded from holding
+#     entirely — same as if it had no marker at all — and a real heading
+#     nested inside the item's own content is left unflattened. Demoting
+#     that nested case would mean detecting an ATX heading somewhere other
+#     than line start, which is exactly the CommonMark-reimplementation dead
+#     end the four review rounds above settled. The page's structural
+#     sentinel is the accepted backstop for that residual gap.
 #
 # Modes:
 #   -v mode=escape  emit the payload: demote stray H1s, and if -v unbalanced=1
@@ -138,17 +154,26 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
   # setext heading. An ATX line ("#") or blockquote line (">") is never
   # setext content and is excluded from holding entirely — confirmed against
   # the vendored parser: "> text\n===" stays a quoted paragraph, not a
-  # heading. A list-item line ("- text", "1. text") IS eligible (CommonMark
-  # lazy continuation), but is split into heldprefix (the marker, verbatim,
-  # including its 0-3 leading spaces) and held (the text after it), so a
+  # heading. A list-item line ("- text", "1. text", marker followed by a
+  # space OR a tab — CommonMark accepts either) IS eligible (CommonMark lazy
+  # continuation), but is split into heldprefix (the marker, verbatim,
+  # including its 0-3 leading spaces) and rest (the text after it), so a
   # later setext underline demotes only the text — "- text" becomes
   # "- #### text", keeping the list structure — while a flush() with no
   # heading reassembles heldprefix held back into the original line.
+  #
+  # The #/> exclusion above tests the RAW line, which only ever sees the
+  # marker ("-", "1.", ...), never what follows it — so it must be re-applied
+  # to rest once the marker is stripped. Skipping that re-test is how a
+  # previous round let "- > quoted" (marker, then blockquote content) get
+  # held and turned into a fabricated heading over a destroyed blockquote.
   if (mode == "escape") {
     if (line ~ /^ {0,3}(#|>)/) { emit(line); next }
-    if (match(line, /^ {0,3}([-*+] |[0-9]+[.)] )/)) {
+    if (match(line, /^ {0,3}([-*+]|[0-9]+[.)])[ \t]/)) {
+      rest = substr(line, RSTART + RLENGTH)
+      if (rest ~ /^ {0,3}(#|>)/) { emit(line); next }
       heldprefix = substr(line, RSTART, RLENGTH)
-      held = substr(line, RSTART + RLENGTH)
+      held = rest
       held_set = 1
       next
     }

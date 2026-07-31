@@ -76,6 +76,20 @@ printf '1. item one\n========\nmore\n' > "$W/list_ordered.md"
 chk "ordered list lazy setext flattened, marker preserved" \
   "$(awk -v mode=escape -f "$SC" "$W/list_ordered.md" | grep -c '^1\. #### item one$')" "1"
 
+printf -- '-\titem\n========\nmore\n' > "$W/list_tab.md"
+chk "tab-separated bullet marker takes the split path, list preserved" \
+  "$(awk -v mode=escape -f "$SC" "$W/list_tab.md" | grep -c $'^-\t#### item$')" "1"
+
+printf -- '- > quoted inside item\n========\nmore\n' > "$W/list_bq.md"
+chk "list item containing blockquote content is left untouched, not fabricated into a heading" \
+  "$(awk -v mode=escape -f "$SC" "$W/list_bq.md" | grep -c '^- > quoted inside item$')" "1"
+chk "... and produces no stray h4 anywhere in the output" \
+  "$(awk -v mode=escape -f "$SC" "$W/list_bq.md" | grep -c '^#### ')" "0"
+
+printf -- '- # not a heading\n========\n' > "$W/list_atx.md"
+chk "list item with its own nested ATX marker stays unchanged (accepted pre-existing gap)" \
+  "$(awk -v mode=escape -f "$SC" "$W/list_atx.md" | grep -c '^- # not a heading$')" "1"
+
 printf '> quoted\n===\n' > "$W/bq.md"
 chk "blockquote setext-lookalike NOT flattened" \
   "$(awk -v mode=escape -f "$SC" "$W/bq.md" | grep -c '^> quoted$')" "1"
