@@ -520,6 +520,17 @@ chk "payload decode failure is reported to the console like the other sections" 
 chk "exactly seven top-level sections are guarded (theme x5, masthead x2)" \
   "$(grep -c 'guard("' "$S/template.html")" "7"
 
+echo "== template JS: inertness =="
+chk "backslashes normalised before the // check" \
+  "$(grep -c 'replace(/\\\\/g, "/")' "$S/template.html")" "1"
+chk "entity decoding via detached textarea" \
+  "$(grep -c 'function decodeEntities' "$S/template.html")" "1"
+chk "scheme allowlist is http/https/mailto only" \
+  "$(grep -cF 'https?|mailto' "$S/template.html")" "1"
+chk "marked.use absence refuses to render" \
+  "$(grep -c 'Renderer unavailable' "$S/template.html")" "1"
+chk "remote images become chips" "$(grep -c 'img-chip' "$S/template.html")" "3"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -324,6 +324,69 @@ __BRIEF_B64__
     b.appendChild(document.createTextNode(msg));
     content.parentNode.insertBefore(b, content);
   }
+
+  /* The document must be inert. Three separate escape hatches exist and all
+     three are closed here:
+       - raw HTML in the payload  -> escaped, not executed
+       - markdown images          -> remote URLs fetch on load; shown as a chip
+       - markdown links           -> javascript:/data: hrefs execute on click
+     Raw-HTML escaping alone is not enough: an `![](https://host/px.gif)` in a
+     brief still beacons the reader's IP and open-time to that host. */
+  /* Scheme-based, not prefix-based. A prefix allowlist that admits "./x" but
+     not the equally common bare "BLOCKS.md" silently demotes valid links, and
+     an allowlist is the wrong shape for the question anyway: what matters is
+     whether a scheme is present and dangerous. Control characters and
+     whitespace are stripped first — "java&#9;script:" is a live scheme. */
+  function decodeEntities(s){
+    /* A textarea decodes character references without executing anything.
+       Needed because "java&#9;script:" is not a control character at the
+       source level, but the browser decodes the entity to a tab and then
+       strips it, reconstituting a live javascript: scheme. */
+    var t = document.createElement("textarea");
+    t.innerHTML = String(s || "");
+    return t.value;
+  }
+  function safeHref(raw){
+    // Backslashes are normalised to "/" BEFORE the check. For special schemes
+    // (file: among them) the WHATWG URL parser treats "\" as "/", so "/\host"
+    // is an equivalent spelling of "//host" and reaches the same remote host.
+    var h = decodeEntities(raw).replace(/[\u0000-\u0020\u007f]/g, "").replace(/\\/g, "/");
+    // "//host/x" has no scheme but is not document-relative: it resolves to
+    // file://host/x, which on Windows is a UNC path and a click attempts an
+    // SMB connection to an attacker-chosen host.
+    if (/^\/\//.test(h)) return false;
+    var m = h.match(/^([a-z][a-z0-9+.\-]*):/i);
+    if (!m) return true;                              // no scheme: relative or fragment
+    return /^(https?|mailto)$/i.test(m[1]);
+  }
+  if (typeof marked === "undefined" || typeof marked.use !== "function") {
+    banner("Renderer unavailable",
+      "marked.use is missing, so payload HTML could not be neutralised. Refusing to render.");
+    return;
+  }
+  marked.use({ renderer: {
+    html: function(token){
+      var raw = (token && typeof token === "object") ? (token.raw || token.text || "") : token;
+      return esc(raw);
+    },
+    image: function(token){
+      var href = (token && typeof token === "object") ? token.href : arguments[0];
+      var text = (token && typeof token === "object") ? (token.text || "") : (arguments[2] || "");
+      if (/^data:image\//i.test(href || "")) {
+        return '<img src="' + esc(href) + '" alt="' + esc(text) + '">';
+      }
+      return '<span class="img-chip"><b>image</b>' + esc(text || "untitled") +
+             ' — ' + esc(href || "") + '</span>';
+    },
+    link: function(token){
+      var href = (token && typeof token === "object") ? token.href : arguments[0];
+      var text = (token && typeof token === "object") ? (token.text || "") : (arguments[2] || "");
+      if (!safeHref(href)) return esc(text) + " (" + esc(href) + ")";
+      return '<a href="' + esc(href) + '" rel="noopener noreferrer">' + esc(text) + "</a>";
+    }
+  } });
+
+  content.innerHTML = marked.parse(md, { gfm:true, breaks:false });
 })();
 </script>
 </body>
