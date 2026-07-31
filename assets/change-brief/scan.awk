@@ -19,6 +19,18 @@
 # heading going missing, not a localized substitution mid-document. Accepted
 # anyway: neither real document in this repo has ever needed it.
 #
+# A second, different failure predates all four rounds, inherited unchanged
+# from the original design rather than caused by the revert: the exclusion
+# above requires a literal space right after the marker, so a marker followed
+# by only whitespace or nothing at all ("-\t\t", bare "-") falls through into
+# the generic hold instead. This is not the under-flattening gap above — it
+# is over-eager fabrication. When a bare "===" follows with no blank line,
+# the underline's own text is discarded and a heading is invented where
+# marked forms none (verified: marked treats the "===" as literal list
+# content). Same reason the page's sentinel doesn't catch it either. Left
+# alone for the same standing reason: patching it reopens the cycle the
+# revert just closed.
+#
 # Truncation is detected by the PAGE, structurally: render.sh always appends
 # a sentinel Plan heading, and the page asserts it survived the parse. That
 # check uses the same parser the reader sees, so it cannot drift, and it
