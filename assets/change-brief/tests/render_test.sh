@@ -517,8 +517,29 @@ chk "applyTheme() still runs immediately after the guarded persist attempt" \
 
 chk "payload decode failure is reported to the console like the other sections" \
   "$(grep -c 'warn("payload decode", e)' "$S/template.html")" "1"
-chk "exactly seven top-level sections are guarded (theme x5, masthead x2)" \
-  "$(grep -c 'guard("' "$S/template.html")" "7"
+
+echo "== template JS: guard() containment (floor + specific labels, not a pinned count) =="
+# A pinned exact count blocks every future task from adding a new guarded
+# section without also bumping this one number -- Task 9's implementer left
+# their inertness block unguarded partly because of exactly this pin. Assert
+# containment instead: each section known to need guarding today is guarded
+# by name, and the total never drops below today's floor. A later task that
+# adds more guarded sections raises the floor in its own commit; it does not
+# need to touch this one.
+for label in \
+  'guard("theme: read stored preference"' \
+  'guard("theme: wire controls"' \
+  'guard("theme: persist preference"' \
+  'guard("theme: attach system-preference listener"' \
+  'guard("theme: apply initial"' \
+  'guard("masthead: apply title"' \
+  'guard("masthead: stamps"' \
+; do
+  chk "guarded: $label" "$(grep -cF "$label" "$S/template.html")" "1"
+done
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 7 ] && ok "at least 7 top-level sections guarded (floor, not a ceiling)" \
+  || no "at least 7 top-level sections guarded (floor, not a ceiling)" "$n"
 
 echo "== template JS: inertness =="
 chk "backslashes normalised before the // check" \
