@@ -37,7 +37,17 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$SPEC" ] || { echo "usage: render.sh SPEC.md [PLAN.md] -o OUT.html" >&2; exit 1; }
-[ -r "$SPEC" ] || { echo "render.sh: cannot read spec $SPEC" >&2; exit 1; }
+# A directory (or other non-regular file) passes -r on most systems, so
+# strip_bom's sed would run against it, print zero bytes with no error, and
+# the render would report success on an empty section. Require a regular
+# file, not merely a readable path; -f follows symlinks, so a symlink to a
+# real spec still passes.
+[ -f "$SPEC" ] && [ -r "$SPEC" ] || { echo "render.sh: cannot read spec $SPEC" >&2; exit 1; }
+# strip_h1's blank-line and heading regexes do not account for a trailing
+# \r, so a CRLF spec silently skips the H1 strip instead of failing — the
+# same trap the template guard below exists for. Reject here, once, before
+# anything downstream reads the file.
+! grep -q $'\r$' "$SPEC" || { echo "render.sh: spec $SPEC has CRLF line endings; convert to LF before rendering" >&2; exit 1; }
 [ -r "$TPL"  ] || { echo "render.sh: cannot read template $TPL" >&2; exit 1; }
 # Task 6 injects into this template with sed addresses anchored to a whole
 # line (^PLACEHOLDER$). A CRLF-terminated file puts a stray \r before that
@@ -48,8 +58,10 @@ done
 ! grep -q $'\r$' "$TPL" || { echo "render.sh: template $TPL has CRLF line endings; convert to LF before rendering" >&2; exit 1; }
 # A supplied-but-unreadable plan must fail loudly. Falling through to the
 # pending callout would tell the human "no plan exists yet" when one does.
-if [ -n "$PLAN" ] && [ ! -r "$PLAN" ]; then
-  echo "render.sh: cannot read plan $PLAN" >&2; exit 1
+# Same regular-file and CRLF requirements as the spec, above.
+if [ -n "$PLAN" ]; then
+  [ -f "$PLAN" ] && [ -r "$PLAN" ] || { echo "render.sh: cannot read plan $PLAN" >&2; exit 1; }
+  ! grep -q $'\r$' "$PLAN" || { echo "render.sh: plan $PLAN has CRLF line endings; convert to LF before rendering" >&2; exit 1; }
 fi
 [ -r "$VENDOR/marked.min.js"  ] || { echo "render.sh: missing $VENDOR/marked.min.js"  >&2; exit 1; }
 [ -r "$VENDOR/mermaid.min.js" ] || { echo "render.sh: missing $VENDOR/mermaid.min.js" >&2; exit 1; }

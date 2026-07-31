@@ -230,6 +230,49 @@ chk "leading thematic break passes through" \
 chk "missing output dir is created" \
   "$("$S/render.sh" "$W/s.md" -o "$W/deep/nested/out.html" >/dev/null 2>&1; [ -f "$W/deep/nested/out.html" ] && echo yes || echo no)" "yes"
 
+echo "== render.sh: directory and CRLF source rejection (defect round) =="
+# A directory passes -r on most systems, so a naive readability check lets it
+# through: strip_bom's sed then runs against the directory, prints zero bytes
+# with no error, and the render reports success on an empty section. -o and
+# leaves-no-output-file are checked directly rather than via payload(), since
+# a zero-byte section is exactly the failure mode under test -- a payload()
+# count of "0" here would prove nothing either way.
+mkdir -p "$W/specdir" "$W/plandir"
+# A minimal stand-in template: only enough to clear the TPL/CRLF preconditions
+# that run ahead of the plan check, so the directory-as-plan case is actually
+# exercised instead of being masked by "cannot read template" (template.html
+# does not exist yet -- see Task 7). It need not carry any placeholders: the
+# plan check runs before the placeholder-presence loop.
+printf 'minimal placeholder-free stand-in template\n' > "$W/notpl.html"
+
+"$S/render.sh" "$W/specdir" -o "$W/dirspec_out.html" >/dev/null 2>"$W/err.txt"
+chk "directory as spec exits 1" "$?" "1"
+grep -q 'cannot read spec' "$W/err.txt" && ok "  names the spec as the problem" \
+  || no "  names the spec as the problem" "$(cat "$W/err.txt")"
+[ -f "$W/dirspec_out.html" ] && no "  directory-as-spec leaves no output file" "file exists" \
+  || ok "  directory-as-spec leaves no output file"
+
+"$S/render.sh" "$W/spec.md" "$W/plandir" -o "$W/dirplan_out.html" -t "$W/notpl.html" >/dev/null 2>"$W/err.txt"
+chk "directory as plan exits 1" "$?" "1"
+grep -q 'cannot read plan' "$W/err.txt" && ok "  names the plan as the problem" \
+  || no "  names the plan as the problem" "$(cat "$W/err.txt")"
+[ -f "$W/dirplan_out.html" ] && no "  directory-as-plan leaves no output file" "file exists" \
+  || ok "  directory-as-plan leaves no output file"
+
+# A CRLF spec combined with a leading blank line: strip_h1's blank-line check
+# does not match a CRLF blank line (the \r is not in [ \t]), so that line is
+# taken as the first content line and the real H1 below it is never examined.
+# render.sh now rejects any CRLF spec/plan outright, mirroring the template's
+# existing CRLF guard, rather than trying to strip a body it cannot parse
+# correctly.
+printf '\r\n# Title\r\nbody\r\n' > "$W/crlf_spec.md"
+"$S/render.sh" "$W/crlf_spec.md" -o "$W/crlfspec_out.html" >/dev/null 2>"$W/err.txt"
+chk "CRLF spec (with leading blank line) exits 1" "$?" "1"
+grep -qi 'crlf' "$W/err.txt" && ok "  names CRLF as the cause" \
+  || no "  names CRLF as the cause" "$(cat "$W/err.txt")"
+[ -f "$W/crlfspec_out.html" ] && no "  CRLF spec leaves no output file" "file exists" \
+  || ok "  CRLF spec leaves no output file"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
