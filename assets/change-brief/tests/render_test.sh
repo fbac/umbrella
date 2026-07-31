@@ -100,6 +100,21 @@ printf -- '- item one\nmore text\n' > "$W/list_noheading.md"
 chk "list item without a following underline stays unchanged" \
   "$(awk -v mode=escape -f "$SC" "$W/list_noheading.md" | grep -c '^- item one$')" "1"
 
+echo "== render.sh preconditions =="
+printf '# T\n\n## Design\n\nbody\n' > "$W/spec.md"
+
+"$S/render.sh" "$W/nonexistent.md" -o "$W/x.html" >/dev/null 2>"$W/err.txt"
+chk "unreadable spec exits 1" "$?" "1"
+grep -q 'cannot read spec' "$W/err.txt" && ok "  names the unreadable spec" \
+  || no "  names the unreadable spec" "$(cat "$W/err.txt")"
+
+"$S/render.sh" "$W/spec.md" "$W/nonexistent.md" -o "$W/x.html" >/dev/null 2>"$W/err.txt"
+chk "unreadable plan exits 1" "$?" "1"
+[ -f "$W/x.html" ] && no "  leaves no output file" "file exists" || ok "  leaves no output file"
+
+"$S/render.sh" "$W/spec.md" -o "$W/x.html" -V "$W/novendor" >/dev/null 2>"$W/err.txt"
+chk "missing vendor exits 1" "$?" "1"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
