@@ -143,11 +143,43 @@ grep -qi 'crlf' "$W/err.txt" && ok "  names CRLF as the cause, not a false alone
 
 echo "== payload assembly =="
 # Helper: decode the base64 payload out of a rendered brief.
+#
+# On ANY failure to produce a genuine payload -- the fixture was never
+# built, is unreadable, has no data-brief attribute, or the attribute's
+# base64 body is empty or corrupt -- writing nothing to stdout would let
+# a downstream `grep -c PATTERN` on empty input legitimately print "0".
+# That coincidentally equals the expected value of every assertion below
+# that checks for an ABSENCE, letting it PASS on a fixture that was never
+# built at all. Emit a fixed poison block instead: two lines matching
+# each "must be absent" prefix this suite checks for (`# `, `> [!PENDING]`),
+# so every such assertion sees a real, nonzero count and fails honestly.
+# Two copies rather than one, so the one assertion here expecting that
+# same prefix to appear EXACTLY once (the gate1 pending-callout check)
+# still fails too, instead of being nudged from a correct 0 to a
+# coincidentally "correct" 1.
 payload(){ python3 - "$1" <<'PY'
 import sys, re, base64
-h = open(sys.argv[1], encoding='utf-8').read()
-m = re.search(r'data-brief="([^"]*)"', h, re.S)
-sys.stdout.write(base64.b64decode(re.sub(r'\s', '', m.group(1))).decode('utf-8'))
+
+FAIL = (
+    "# __PAYLOAD_FIXTURE_MISSING__\n"
+    "# __PAYLOAD_FIXTURE_MISSING__\n"
+    "> [!PENDING] __PAYLOAD_FIXTURE_MISSING__\n"
+    "> [!PENDING] __PAYLOAD_FIXTURE_MISSING__\n"
+)
+
+try:
+    h = open(sys.argv[1], encoding='utf-8').read()
+    m = re.search(r'data-brief="([^"]*)"', h, re.S)
+    if not m:
+        raise ValueError('no data-brief attribute')
+    text = base64.b64decode(re.sub(r'\s', '', m.group(1)), validate=True).decode('utf-8')
+    if not text:
+        raise ValueError('empty payload')
+except Exception:
+    sys.stdout.write(FAIL)
+    sys.exit(1)
+
+sys.stdout.write(text)
 PY
 }
 
