@@ -310,18 +310,36 @@ chk "plan-state pending" \
   "$(grep -c 'data-plan-state="pending"' "$W/g1.html")" "1"
 
 # Provenance: identical bytes give identical digests, changed bytes differ.
+# Guarded: a missing/empty fixture, or a data-sources attribute that failed to
+# extract from either side, must fail loudly rather than let two coincidentally
+# equal empty extractions read as "identical" (a real failure, but for the
+# wrong reason) or, worse, let one built and one unbuilt fixture read as
+# "different" (a false pass).
 "$S/render.sh" "$W/s.md" -o "$W/d1.html" >/dev/null
-d1=$(grep -o 'data-sources="[^"]*"' "$W/d1.html")
 printf '# Spec Title\n\n## Design\n\nbody changed\n' > "$W/s2.md"
 "$S/render.sh" "$W/s2.md" -o "$W/d2.html" >/dev/null
-d2=$(grep -o 'data-sources="[^"]*"' "$W/d2.html")
-[ "$d1" != "$d2" ] && ok "provenance changes with source bytes" \
-  || no "provenance changes with source bytes" "identical"
+if [ ! -s "$W/d1.html" ] || [ ! -s "$W/d2.html" ]; then
+  no "provenance changes with source bytes" "fixture not built: d1.html or d2.html missing/empty"
+else
+  d1=$(grep -o 'data-sources="[^"]*"' "$W/d1.html")
+  d2=$(grep -o 'data-sources="[^"]*"' "$W/d2.html")
+  if [ -z "$d1" ] || [ -z "$d2" ]; then
+    no "provenance changes with source bytes" "data-sources attribute not found in d1.html or d2.html"
+  elif [ "$d1" != "$d2" ]; then
+    ok "provenance changes with source bytes"
+  else
+    no "provenance changes with source bytes" "identical"
+  fi
+fi
 
-# Idempotent apart from the generation timestamp.
+# Idempotent apart from the generation timestamp. Guarded: a missing or
+# zero-byte fixture must fail loudly rather than let two empty `sed` streams
+# (one per unbuilt file) diff as equal and read as a real idempotency proof.
 "$S/render.sh" "$W/s.md" -o "$W/i1.html" >/dev/null
 "$S/render.sh" "$W/s.md" -o "$W/i2.html" >/dev/null
-if diff <(sed 's/data-generated="[^"]*"/X/' "$W/i1.html") \
+if [ ! -s "$W/i1.html" ] || [ ! -s "$W/i2.html" ]; then
+  no "renders are idempotent apart from the timestamp" "fixture not built: i1.html or i2.html missing/empty"
+elif diff <(sed 's/data-generated="[^"]*"/X/' "$W/i1.html") \
         <(sed 's/data-generated="[^"]*"/X/' "$W/i2.html") >/dev/null; then
   ok "renders are idempotent apart from the timestamp"
 else
