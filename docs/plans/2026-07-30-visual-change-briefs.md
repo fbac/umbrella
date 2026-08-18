@@ -2043,22 +2043,29 @@ git commit -m "feat(change-brief): derive task graph from Depends on, scoped to 
 
 Mermaid v10 is async-only: the v8/v9 callback form produces no output and no exception, leaving every diagram blank. Each fence renders twice up front so theme switching is a pure CSS toggle and print can select the light variant synchronously.
 
-`flowchart: { htmlLabels: false }` is not cosmetic and is not optional. What follows separates what has been observed from what has only been inferred, because a later reader will take whatever this paragraph asserts as verified — and that boundary has already moved once.
+`flowchart: { htmlLabels: false }` is not cosmetic and is not optional — and it is not sufficient on its own either; the `secure` list below is what turns it into a control. What follows separates what has been observed from what has only been inferred, because a later reader will take whatever this paragraph asserts as verified — and that boundary has already moved twice.
 
 **Observed**, driven against the vendored 10.9.1 bundle at `securityLevel:"strict"`:
 
 - Mermaid v10 builds flowchart labels as *markup*, not as text. A `<b>x</b>` label comes back as a real `<b>` element inside a `<foreignObject>`.
 - A heading carrying `<img src=https://evil.example.invalid/x.png>` produces a **real `<img>` element, attached to the live document, holding that exact URL**. It is reachable by polling the DOM mid-render: the render promise hangs afterwards, but the element is already in the document by then. Counted: two `<foreignObject>` elements, one `<img>`.
 - **DOMPurify runs, and does not remove it.** The sanitiser is not being bypassed, and its allowlist has been exercised rather than read: `<svg onload=alert(1)>` comes back as `<svg></svg>` — handler stripped, element kept — and the `<img src=…>` survives that same pass.
-- With `flowchart: { htmlLabels: false }`, the same labels produce zero `<img>` elements, zero `<foreignObject>` elements, and the render settles instead of hanging.
+- With `flowchart: { htmlLabels: false }`, the same labels produce zero `<img>` elements, zero `<foreignObject>` elements, and the render settles instead of hanging — **provided the payload cannot put the setting back.** It could.
+- **`initialize()` is not, on its own, a control over untrusted content.** Mermaid 10.9.1 protects exactly the keys on its `secure` list, read out of the vendored bundle as `["secure","securityLevel","startOnLoad","maxTextSize","maxEdges"]`. `flowchart.htmlLabels` and `theme` are absent from it, and the sanitiser applies that list recursively at every depth, so a payload-supplied `%%{init: {"flowchart": {"htmlLabels": true}}}%%` directive overrides whatever `initialize` set. Reproduced end-to-end on real `render.sh` output by two independent routes: a mermaid fence in the payload, and a task heading reaching mermaid through Task 12's generated node label — where `label.replace(/["]/g, "'")` fails to disarm it, because mermaid's directive parser accepts single quotes. Each produced a live `<img src=…>` attached to the document, two `<foreignObject>` elements, and a render that never settled.
+- **`securityLevel` *is* on that list**, so a `"securityLevel":"loose"` directive is refused and DOMPurify still strips `onerror`. This is a beacon plus denial-of-render, not script execution.
+- Adding `"htmlLabels"` and `"theme"` to the `secure` list closes both routes completely: zero `<img>`, zero `<foreignObject>`, and every diagram rendering in both themes with the correct per-theme colours (`#333` light, `#ccc` dark — confirming the list constrains directives only, not `initialize`'s own config). `"theme"` earns its place independently of the beacon: a `%%{init:{"theme":"dark"}}%%` fence makes the **light** slot paint with dark-theme colours, and print forces `.d-light`, so a payload can otherwise make a diagram illegible on paper.
 
 **Inferred, and still unconfirmed: only the fetch itself** — that the browser, having been handed a live `<img src>` pointing at a payload-supplied URL, then requests it. Everything up to and including that element in the document is observed; the request is not.
 
 **Do not read the harness's silence as evidence either way.** A request interceptor recorded zero attempts — but so did the control: a plain `<img>` inserted straight into `document.body` also produced zero. jsdom does not load images here at all, so that harness is structurally blind and proves nothing in either direction. "Zero requests observed" under it is not a safety result; it is a measurement that could not have detected the thing it was pointed at. **Walk case 10 is the arbiter**, and its result belongs back in this paragraph.
 
-The fix does not wait on that confirmation, and stays right even if the fetch never fires: a document whose entire premise is inertness must not hand un-escaped payload text to a renderer that constructs live elements out of it. That is also a door Task 9 never covered — Task 9 escapes payload HTML at parse time so the DOM holds the literal string, and Tasks 11 and 12 are the first paths that hand that literal *back* to a renderer which un-escapes it. Setting it in `initialize` covers Task 11's fence extraction and Task 12's derived graph in one place.
+The fix does not wait on that confirmation, and stays right even if the fetch never fires: a document whose entire premise is inertness must not hand un-escaped payload text to a renderer that constructs live elements out of it. That is also a door Task 9 never covered — Task 9 escapes payload HTML at parse time so the DOM holds the literal string, and Tasks 11 and 12 are the first paths that hand that literal *back* to a renderer which un-escapes it. Setting it in `initialize`, **and pinning it there with the `secure` list**, covers Task 11's fence extraction and Task 12's derived graph in one place.
 
-One more consequence, recorded because the renderer below is a sequential `boxes.reduce(chain.then(...))`: a box whose render promise never settles stalls every later diagram and the whole second pass. The `<img>`-bearing label above is exactly that case, and the cause is now understood rather than merely observed — the constructed image element is awaiting a load that never arrives, so the render never resolves. With `htmlLabels:false` no image element is constructed and the same render settles. If a future change re-enables HTML labels, or adds any renderer path that can hang, the chain must be made non-stallable (race each box against a timeout) before that change lands.
+One more consequence, recorded because the renderer below is a sequential `boxes.reduce(chain.then(...))`: a box whose render promise never settles stalls every later diagram and the whole second pass. The `<img>`-bearing label above is exactly that case, and the cause is understood rather than merely observed — the constructed image element is awaiting a load that never arrives, so the render never resolves.
+
+That is not a hypothetical waiting on a future change: until the `secure` list landed, a payload could reach it on purpose. Measured on a four-diagram brief whose first fence carried the directive, **0 of 4 diagrams rendered in light and 0 of 4 in dark** — four empty bordered boxes, no error box, console silent — because pass 2 only begins once pass 1 has fully drained. So both defences ship together, and they are not redundant: the `secure` list removes the known trigger, and racing each render against an 8-second timeout removes the whole class, turning any box that hangs for any other reason into one error card while the chain continues. Verified against an injected never-settling render: the brief settles in 8.1s with three of four diagrams in both themes and the fourth showing `Render timed out after 8000ms` above its source.
+
+Interleaving the two passes per box was considered and **declined**: a hung box would still block every later box in both themes, so it shrinks the blast radius without fixing the stall, whereas the race fixes it outright. Do not re-propose it.
 
 **Files:**
 - Modify: `assets/change-brief/template.html`
@@ -2081,8 +2088,53 @@ chk "strict security level" \
 # to be inert. htmlLabels:false is what closes it.
 chk "flowchart labels are SVG text, never innerHTML" \
   "$(grep -c 'htmlLabels:false' "$S/template.html")" "1"
+# ...and initialize() is not a control over untrusted content on its own.
+# Mermaid 10.9.1 lets a %%{init: ...}%% directive in the payload override any
+# key absent from its `secure` list, whose stock value omits BOTH keys this
+# file depends on. Reproduced on real render.sh output by two routes -- a
+# payload fence, and a task heading reaching mermaid through Task 12's
+# generated DAG label -- each yielding a live <img src=...>, two
+# <foreignObject> elements, and a render that never settled. Pinned exact:
+# dropping either added key silently reopens the bypass, and no other
+# assertion in this suite can see it.
+chk "htmlLabels and theme are out of reach of a payload init directive" \
+  "$(grep -cF 'secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme"],' "$S/template.html")" "1"
 chk "failing pass never clobbers a good render" \
   "$(grep -c 'box.querySelector(".d-light svg")' "$S/template.html")" "1"
+# ...but it must not do so silently. That early return was the only path in the
+# section producing neither a DOM signal nor a console line: a box that is a
+# correct diagram in light and an empty card in dark, with nothing to say why.
+chk "a pass that fails over an existing good render still reports" \
+  "$(grep -cF 'warn("mermaid: " + cls + " pass for an already-rendered diagram", err);' "$S/template.html")" "1"
+# The reduce is sequential, so a box that never settles stalls every later
+# diagram AND the whole second pass, which only starts once the first drains.
+# Measured before the race landed, on a four-diagram brief whose first fence
+# carried the directive above: 0 of 4 diagrams in light, 0 of 4 in dark.
+chk "every render is raced against a timeout" \
+  "$(grep -cF 'raceTimeout(mermaid.render(id, src))' "$S/template.html")" "1"
+# The race has to REJECT. A timeout that resolved would hand the success branch
+# an undefined result and leave an empty slot with no error card and no console
+# line -- the exact silence the race exists to remove.
+chk "the timeout rejects rather than resolving" \
+  "$(grep -cF 'reject(new Error("Render timed out after ' "$S/template.html")" "1"
+# Mermaid removes its temp container only on the success path; both failure
+# exits throw with it still attached to <body>, where it shows mermaid's own
+# error graphic outside .shell, unclassed, in both themes and in print. Its
+# only other cleanup is a later render reusing the same id, which monotonic
+# seq guarantees never happens.
+chk "both of mermaid's orphaned temp container ids are cleaned up" \
+  "$(grep -cF '["d" + id, "i" + id].forEach(function(orphan){' "$S/template.html")" "1"
+# "on every failure path" is an ordering claim, not a presence one: placed
+# after either early return, the cleanup would skip the two paths that return
+# early and leave the orphan attached. Line numbers are what can see that.
+orphan_ln=$(grep -n '\["d" + id, "i" + id\].forEach' "$S/template.html" | head -1 | cut -d: -f1)
+early_ln=$(grep -n 'if (box.classList.contains("mermaid-error")) return;' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$orphan_ln" ] && [ -n "$early_ln" ] && [ "$orphan_ln" -lt "$early_ln" ]; then
+  ok "the orphan cleanup runs before both early returns, so it covers every failure path"
+else
+  no "the orphan cleanup runs before both early returns, so it covers every failure path" \
+     "cleanup=[${orphan_ln:-missing}] early-return=[${early_ln:-missing}]"
+fi
 # Containment for the one section this task adds, by label and floor, per the
 # doctrine at the top of the IIFE. The renderer's kick-off is a top-level
 # statement like every other section, so it is guarded like every other section.
@@ -2096,10 +2148,12 @@ n=$(grep -c 'guard("' "$S/template.html")
 # rejection from the light pass's reduce chain, and the SECOND renderPass call,
 # which runs inside a .then callback where guard() has already returned. Both
 # surface as unhandled rejections -- no label, nothing the console can pin on
-# this file. The terminal .catch is what closes them, so pin it byte-exact:
-# a presence grep for the label alone would also match it sitting in a comment.
+# this file. The terminal .catch is what closes them. Pinned by its chain-level
+# indent, which is what distinguishes it from the per-box .catch above.
 chk "the render chain has a terminal catch, not just a guard" \
-  "$(grep -cF '.catch(function(e){ warn("mermaid: dual-theme render chain", e); });' "$S/template.html")" "1"
+  "$(grep -cF '      .catch(function(e){' "$S/template.html")" "1"
+chk "the terminal catch reports through warn(), like every guarded section" \
+  "$(grep -cF 'warn("mermaid: dual-theme render chain", e);' "$S/template.html")" "1"
 # ...and it has to be chained AFTER the dark pass, or it covers the light pass
 # only and the second pass is back to an unhandled rejection. Presence greps
 # cannot see chain order; line numbers can.
@@ -2111,6 +2165,19 @@ else
   no "the terminal catch is chained after the dark pass, so it covers both passes" \
      "dark=[${darkpass_ln:-missing}] catch=[${mmcatch_ln:-missing}]"
 fi
+# Completion marker for the walk harness (Task 17): waitForSelector beats a
+# fixed waitForTimeout, and it is the only thing that can tell "slow" apart
+# from "stalled". Two, not one -- marked on the failure path as well, since a
+# marker that appeared only on success hands the harness back the same
+# ambiguity it exists to remove.
+chk "the run announces completion on every path that ends it" \
+  "$(grep -c 'root.setAttribute("data-diagrams"' "$S/template.html")" "3"
+# The third is not padding. A guard()-caught synchronous throw means the chain
+# never starts, so neither .then nor .catch can ever run -- observed at 63s with
+# the attribute still absent, i.e. a harness waiting on it hangs on the one path
+# that is already a hard failure. Pin the synchronous fallback by itself.
+chk "a guard()-caught throw still ends with a marker, not silence" \
+  "$(grep -cF 'if (!diagramsStarted) root.setAttribute("data-diagrams", "failed");' "$S/template.html")" "1"
 # Same mirror as Task 12's, for the same reason: this task's snippet was edited
 # in the plan (the bare kick-off call gained its guard), so plan and template
 # can now drift, and nothing else in this suite can see it.
@@ -2128,7 +2195,7 @@ mirror_chk "Task 13's plan snippet is byte-identical to the shipped template" \
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: nine FAILs, exit 1. (Four of the five API-contract assertions fail; "no v8/v9 callback form" expects a count of zero and so passes before the renderer exists at all.)
+Expected: eighteen FAILs, exit 1. (Eighteen of the nineteen; "no v8/v9 callback form" expects a count of zero and so passes before the renderer exists at all.)
 
 - [ ] **Step 3: Add the dual-pass renderer**
 
@@ -2137,10 +2204,70 @@ Append inside the IIFE, after the per-task progress section:
 ```js
   /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */
   var seq = 0;
+
+  /* A box whose render never settles must not take the document with it. This
+     renderer is a sequential reduce, so one hung box stalls every later diagram
+     AND the entire second pass, which only begins once the first has drained.
+     Measured on a four-diagram brief whose first fence carried the init
+     directive described below: 0 of 4 diagrams in light, 0 of 4 in dark, four
+     empty bordered boxes, nothing in the console. Racing each render turns that
+     into one error card and lets the chain continue.
+
+     Considered and declined: interleaving the two passes per box. It shrinks
+     the blast radius but does not fix the stall — a hung box still blocks every
+     later box in both themes — whereas the race removes the stall outright.
+     Do not re-propose it as an alternative to this.
+
+     8000ms is chosen against measurement, not taste. Mermaid renders locally
+     with no network fetch and refuses graphs past its own maxEdges/maxTextSize
+     limits, so there is no legitimate mechanism by which a render takes
+     seconds: a typical diagram in this format settles in 9-32ms, and a
+     deliberately oversized 121-node flowchart — far larger than any brief
+     produces — in 217ms. 8s is roughly 36x that worst case, so a slow or
+     throttled machine cannot false-positive and destroy a good diagram, while
+     still sitting inside the window where a reader is waiting rather than
+     concluding the page is broken. */
+  var RENDER_TIMEOUT_MS = 8000;
+  function raceTimeout(p){
+    return new Promise(function(resolve, reject){
+      /* Rejects, never resolves. A timeout that resolved would hand the success
+         branch an undefined result and leave an empty slot behind with no error
+         card and no console line — the silent failure this section refuses. */
+      var timer = setTimeout(function(){
+        reject(new Error("Render timed out after " + RENDER_TIMEOUT_MS + "ms"));
+      }, RENDER_TIMEOUT_MS);
+      Promise.resolve(p).then(
+        function(v){ clearTimeout(timer); resolve(v); },
+        function(e){ clearTimeout(timer); reject(e); }
+      );
+    });
+  }
+
   function renderPass(themeName, cls){
     if (typeof mermaid === "undefined") return Promise.resolve();
     mermaid.initialize({
       startOnLoad:false, securityLevel:"strict",
+      /* initialize() is not, on its own, a control over untrusted content.
+         Mermaid 10.9.1 lets a %%{init: ...}%% directive inside a fence override
+         any config key absent from the `secure` list, and its stock list —
+         ["secure","securityLevel","startOnLoad","maxTextSize","maxEdges"] —
+         omits both of the keys this file depends on. Extending the list is what
+         turns them into controls; the sanitiser walks a directive recursively at
+         every depth, so naming the leaf key is enough.
+
+         Observed against this exact bundle, on real render.sh output, by two
+         independent routes: a mermaid fence in the payload, and a task heading
+         reaching mermaid through the generated dependency graph's node label
+         (single quotes survive buildDag's double-quote replacement). Both
+         produced a live <img src=...> attached to the document, two
+         <foreignObject> elements, and a render that never settled — hence zero
+         diagrams in either theme, no error box, and a silent console.
+         securityLevel IS on the stock list, so a "loose" directive is refused
+         and DOMPurify still strips event handlers: this was a beacon plus
+         denial-of-render, not script execution. theme belongs here on its own
+         merits too — a theme directive makes the LIGHT slot paint with
+         dark-theme colours, which print, forcing .d-light, then reproduces. */
+      secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme"],
       /* Labels as SVG text, not innerHTML. See this task's preamble: at strict,
          v10 still inserts flowchart labels as HTML and DOMPurify keeps <img>,
          so an image tag in a task heading fires a real network request out of a
@@ -2154,7 +2281,7 @@ Append inside the IIFE, after the per-task progress section:
         var src = box.dataset.src, id = "mmd-" + (seq++);
         return Promise.resolve()
           .then(function(){ return mermaid.parse(src); })
-          .then(function(){ return mermaid.render(id, src); })
+          .then(function(){ return raceTimeout(mermaid.render(id, src)); })
           .then(function(res){
             var slot = document.createElement("div");
             slot.className = cls;
@@ -2162,12 +2289,38 @@ Append inside the IIFE, after the per-task progress section:
             box.appendChild(slot);
           })
           .catch(function(err){
+            /* Before any early return, so it runs on every failure path.
+               Mermaid removes its temp container only on the success path: both
+               failure exits throw with it still attached to <body>, where it
+               shows mermaid's own error graphic outside .shell, unclassed and
+               with no rule that hides it, in both themes and in print. Its only
+               other cleanup is a later render reusing the same id, and seq is
+               monotonic — which it must stay, since a reused id would also make
+               v10's opening getElementById(id) removal tear the previous pass's
+               injected <svg> back out of the box. */
+            ["d" + id, "i" + id].forEach(function(orphan){
+              var n = document.getElementById(orphan);
+              if (n && n.parentNode) n.parentNode.removeChild(n);
+            });
+            /* Unreachable as the code stands — a failing pass removes data-src
+               below, so the next pass's [data-src] re-query never revisits this
+               box. Kept as defence: it is the only thing standing between a
+               future third pass, or a retry, and an error card rebuilt on top
+               of itself. */
             if (box.classList.contains("mermaid-error")) return;
             /* Never destroy a pass that already succeeded. The two passes
                mutate one container; a dark-pass failure would otherwise
                replace three perfectly good light renders with error boxes —
                and print, which forces .d-light, would show the error. */
-            if (box.querySelector(".d-light svg")) return;
+            if (box.querySelector(".d-light svg")) {
+              /* ...but say so. Keeping the good render is right; keeping it
+                 silently is not. This was the one path in the section that
+                 produced neither a DOM signal nor a console line: a box that is
+                 a correct diagram in light and an empty card in dark, with
+                 nothing anywhere to explain the difference. */
+              warn("mermaid: " + cls + " pass for an already-rendered diagram", err);
+              return;
+            }
             box.className = "mermaid-error";
             box.removeAttribute("data-src");
             box.innerHTML =
@@ -2189,17 +2342,37 @@ Append inside the IIFE, after the per-task progress section:
      guard() has long since returned. Without it a dark-pass failure is an
      unhandled rejection: no label, no warn(), nothing attributable to this
      file — the silent failure the containment doctrine above exists to refuse. */
+  var diagramsStarted = false;
   guard("mermaid: start dual-theme render", function(){
     renderPass("default", "d-light")
       .then(function(){ return renderPass("dark", "d-dark"); })
-      .catch(function(e){ warn("mermaid: dual-theme render chain", e); });
+      /* Completion marker for the walk harness: a waitForSelector on this beats
+         a fixed waitForTimeout, and it is the only thing that can tell "slow"
+         apart from "stalled". Marked on the failure path too — a run that ended
+         in an error card has still ended, and a marker that appeared only on
+         success would hand the harness straight back the ambiguity it exists to
+         remove. */
+      .then(function(){ root.setAttribute("data-diagrams", "done"); })
+      .catch(function(e){
+        warn("mermaid: dual-theme render chain", e);
+        root.setAttribute("data-diagrams", "failed");
+      });
+    diagramsStarted = true;
   });
+  /* The third state, found by measurement rather than reasoning: when guard()
+     catches a synchronous throw the chain never starts, so neither .then nor
+     .catch above can ever run and NO marker is set. Observed at 63s with the
+     attribute still absent — a harness waiting on [data-diagrams] hangs forever
+     on the one path that is already a hard failure, which is the ambiguity the
+     marker exists to remove, reintroduced at the far end. Mark it here,
+     synchronously, so the attribute means "the run ended" on every path. */
+  if (!diagramsStarted) root.setAttribute("data-diagrams", "failed");
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: all ten new assertions PASS and the suite reports 205 passed, 0 failed. Visual confirmation is **walk cases 2, 4, 5 and 10** — the static test proves the API contract, not that diagrams are legible.
+Expected: all nineteen new assertions PASS and the suite reports 214 passed, 0 failed. Visual confirmation is **walk cases 2, 4, 5, 10 and 11** — the static test proves the API contract, not that diagrams are legible.
 
 - [ ] **Step 5: Commit**
 
@@ -2222,6 +2395,8 @@ Task headings attach to the Plan group by **region**, not by heading adjacency. 
 - [ ] **Step 1: Write the failing test**
 
 Append to `assets/change-brief/tests/render_test.sh`, before the final `echo`:
+
+**Also retarget Task 13's `mirror_chk` stop marker in the same commit.** It is currently `'})();'`, which was correct only while the mermaid renderer was the last section in the file; this task appends after it, so the marker must become `'  /* ---------- build TOC ---------- */'`. The suite fails loudly rather than silently if this is missed, but it fails as a puzzling 100-line diff on Task 13's mirror, not as anything naming this task.
 
 ```bash
 echo "== template JS: index =="
@@ -2744,7 +2919,7 @@ flowchart TB
 
 `assets/change-brief/tests/fixtures/beacon.md`:
 
-```markdown
+````markdown
 # Beacon Fixture
 
 ## Why this change
@@ -2758,7 +2933,17 @@ Bad link: [click](javascript:window.__PWN=1)
 UNC link: [unc](/\evil.example.invalid/share)
 
 Good link: [BLOCKS](BLOCKS.md) and [fragment](#design) and [web](https://example.com/).
+
+Directive-bypass probe — a payload trying to put `htmlLabels` back and beacon through a
+node label. Task 13's `secure` list is what refuses it; without that list this fence
+produces a live `<img>` and hangs the renderer.
+
+```mermaid
+%%{init: {"flowchart": {"htmlLabels": true}}}%%
+flowchart LR
+  A["<img src=https://evil.example.invalid/x.png>"] --> B["<b>bold</b>"]
 ```
+````
 
 `assets/change-brief/tests/fixtures/comment-truncation.md`:
 
@@ -2911,12 +3096,23 @@ async function probe(file) {
   p.on('pageerror', e => errs.push(e.message));
   p.on('request', r => { if (!r.url().startsWith('file://')) reqs.push(r.url()); });
   await p.goto('file://' + file);
-  await p.waitForTimeout(5000);
+  // The page marks its own completion (Task 13). Waiting on that instead of a
+  // fixed sleep is what distinguishes "still rendering" from "stalled", and it
+  // is set on every path that ends the run -- including the ones that fail.
+  await p.waitForSelector('[data-diagrams]', { timeout: 30000 });
   const r = await p.evaluate(() => ({
     banners: [...document.querySelectorAll('.integrity-banner')].map(b => b.textContent.slice(0, 40)),
     light: document.querySelectorAll('.mermaid-block .d-light svg').length,
     dark: document.querySelectorAll('.mermaid-block .d-dark svg').length,
     errBoxes: document.querySelectorAll('.mermaid-error').length,
+    // Task 13's Critical: a payload init directive re-enabling htmlLabels builds
+    // labels as HTML, which is how a live <img> reaches the document. Zero
+    // <foreignObject> is the observable proof the secure list still holds.
+    foreignObjects: document.querySelectorAll('foreignObject').length,
+    // Mermaid leaves its temp container attached to <body> on every failure
+    // exit; it carries mermaid's own error graphic, outside .shell, unclassed.
+    orphans: document.querySelectorAll('[id^="dmmd-"], [id^="immd-"]').length,
+    diagramsState: document.documentElement.getAttribute('data-diagrams'),
     contentH1: document.querySelectorAll('#content h1').length,
     pending: document.querySelectorAll('.callout.pending').length,
     groups: [...document.querySelectorAll('.toc-group')].map(g => ({
@@ -3003,6 +3199,13 @@ async function probe(file) {
   const hrefs = r.anchors.map(a => a.href);
   chk('beacon: javascript and UNC hrefs demoted', hrefs.includes('javascript:window.__PWN=1'), false);
   chk('beacon: bare relative link kept', hrefs.includes('BLOCKS.md'), true);
+  // Task 13's Critical, regression-tested in a real browser: the fence in this
+  // fixture carries %%{init:{"flowchart":{"htmlLabels":true}}}%% and an <img>
+  // node label. Both counts are zero only while the secure list holds.
+  chk('beacon: directive cannot re-enable HTML labels', r.foreignObjects, 0);
+  chk('beacon: no orphaned mermaid temp container', r.orphans, 0);
+  chk('beacon: the directive fence still rendered in both themes', [r.light, r.dark], [1, 1]);
+  chk('beacon: the run completed rather than stalling', r.diagramsState, 'done');
 }
 
 // 5. Dangling comment: content survives, nothing is lost.
@@ -3038,7 +3241,7 @@ Then, if `npm` and a system Chrome are available:
 ```bash
 cd assets/change-brief/tests/browser && npm install && node verify.mjs
 ```
-Expected: `browser: N passed, 0 failed`, exit 0. If playwright-core cannot install, skip — walk cases 1-10 cover the same ground.
+Expected: `browser: N passed, 0 failed`, exit 0. If playwright-core cannot install, skip — walk cases 1-11 cover the same ground.
 
 - [ ] **Step 5: Commit**
 
@@ -3685,7 +3888,7 @@ Expected: the output path on stdout, **nothing on stderr**. Any `warning:` line 
 
 - [ ] **Step 4: Execute the Browser-Walk Inventory**
 
-Work through all nine cases below in a real browser and record the result of each. **This is the mandatory gate.** A >90 plan review does not clear the `browser-walk-only` class — the walk does.
+Work through all eleven cases below in a real browser and record the result of each. **This is the mandatory gate.** A >90 plan review does not clear the `browser-walk-only` class — the walk does.
 
 - [ ] **Step 5: Commit**
 
@@ -3698,7 +3901,7 @@ git commit -m "chore(change-brief): dogfood render and completed browser walk"
 
 ## Browser-Walk Inventory
 
-Ten cases. Nine are carried forward from the spec's `browser-walk-only` requirements; case 10 was added by Task 13 to settle a consequence that task states but cannot verify statically. No account or login is involved anywhere — every case opens a local file. Execute each in full sentences and record pass or fail.
+Eleven cases. Nine are carried forward from the spec's `browser-walk-only` requirements; cases 10 and 11 were added by Task 13 to settle consequences that task states but cannot verify statically. No account or login is involved anywhere — every case opens a local file. Execute each in full sentences and record pass or fail.
 
 1. **Index navigation.** Open `docs/briefs/2026-07-27-visual-change-briefs-design.html` from `file://` in Chrome at a 1440px-wide window. Confirm the left sidebar lists every `##` section of the document as a top-level entry, with each of that section's `###` subsections nested beneath it. Click a chevron next to one group and confirm it collapses that group's children without navigating away from the current scroll position. Confirm the Plan group lists all twenty-three tasks as children, not just the first few.
 
@@ -3720,6 +3923,10 @@ Ten cases. Nine are carried forward from the spec's `browser-walk-only` requirem
 
 10. **HTML in a heading, through the mermaid label path.** This case exists to settle the inferred half of Task 13's `htmlLabels` reasoning, which no static test can reach. Write a two-task fixture — two tasks so a dependency graph is drawn at all — whose first heading carries an image tag: `### Task 1: probe <img src=https://evil.example.invalid/x.png>`, with `### Task 2: second` and a `**Depends on:** Task 1` under it. Render it with `assets/change-brief/render.sh`. Open the developer console and the network tab **before** loading the file, leave the network enabled, then open the rendered brief from `file://`. The `.invalid` TLD never resolves, so a request attempt is visible in the network tab without anything leaving the machine. Confirm the network tab shows zero requests, and no attempt, to `evil.example.invalid` or any other host. Inspect the graph's first node in the elements panel and confirm its label is an SVG `<text>` element holding the tag as literal characters — no `<foreignObject>`, and no `<img>` element anywhere inside the diagram. Then remove `flowchart: { htmlLabels: false }` from `mermaid.initialize` in `assets/change-brief/template.html`, re-render, and reload with the network tab open. Under jsdom that configuration produced a `<foreignObject>` label and a live `<img>` element carrying the payload's URL, which DOMPurify did **not** strip — but every observation behind that is jsdom's, and this case is the browser's. Confirm whether the browser agrees on the DOM: `<foreignObject>` present, `<img>` present, its `src` intact. Then, separately, record whether a request attempt to `evil.example.invalid` appears in the network tab — that is the step no harness has been able to observe at all, and the one genuinely open question here. Restore the setting afterwards. Report both answers; they are what Task 13's prose is waiting on.
 
+    **Third leg — the payload-directive route, against the template exactly as shipped.** The A/B above modifies the template; this leg modifies nothing, and it is the one that matters most, because the A/B could never have caught the bypass Task 13 now guards: a payload directive needs no template change at all, so removing `htmlLabels: false` and putting it back only ever exercised the half of the control that was never the weak one. Render `assets/change-brief/tests/fixtures/beacon.md`, whose fence begins `%%{init: {"flowchart": {"htmlLabels": true}}}%%` and carries an `A["<img src=https://evil.example.invalid/x.png>"]` node label, and open it with the network tab already recording. Confirm the diagram renders in **both** themes; that the elements panel shows no `<foreignObject>` and no `<img>` anywhere on the page; that no `<div id="dmmd-…">` is left behind in `<body>`; that `document.documentElement.dataset.diagrams` reads `done` rather than being absent; and that no request, and no request *attempt*, to `evil.example.invalid` appears. Under jsdom every one of these holds with the `secure` list in place and every one of them failed without it — but jsdom is blind to the request itself, so the network tab remains the only thing that can answer the last one.
+
+11. **Duplicate unnamespaced ids across the two theme variants.** Mermaid does not namespace every id it emits per render — `arrowhead`, `crosshead`, `sequencenumber`, `clock` and `database` are emitted verbatim — so a page holding both a light and a dark render of one diagram holds two elements sharing each of those ids. **Confirmed:** the DOM fact. On the real dogfood brief there are 55 duplicated ids, and both the `.d-light` and the `.d-dark` slot carry their own `<marker id="arrowhead">`. **Inferred, and observed by nothing:** the visual consequence. A fragment reference such as `url(#arrowhead)` resolves to the first match in document order — the light render's marker — so the dark diagram should be painting its arrowheads in light-theme colours. That follows from the DOM plus the CSS; jsdom cannot settle it, because it paints nothing. Render a fixture containing a `sequenceDiagram` fence (arrowheads and sequence numbers are the markers this reaches), switch the theme control to dark, and confirm whether the arrowheads and sequence numbers are visible and correctly coloured against the dark background. Repeat in light. If dark is wrong, the light-before-dark render order is the cause — and the fix is to namespace the ids per pass, **not** to reverse the order, which would merely move the same defect onto print, which forces `.d-light`. Record what you actually see, not what this paragraph predicts.
+
 ---
 
 ## Self-Review
@@ -3730,6 +3937,6 @@ Ten cases. Nine are carried forward from the spec's `browser-walk-only` requirem
 
 **Type consistency.** `planH2`, `PLAN_MARK`, `sectionNodes`, `buildDag`, `normId`, `nodeName`, `planRegionHeadings`, `safeHref`, `decodeEntities`, `banner`, `decodeB64`, and `esc` are defined once and referenced consistently. Task 15 renames `planTasks` to `planRegionHeadings`; Step 3f retargets the one earlier assertion that names it, raises the guard floor to 16, and lists the three assertions in the same block that are expected to survive the rename untouched, so no task refers to the old name afterwards.
 
-**Walk-tag coverage.** Twenty-three tasks, each tagged. Three are `browser-walk-only` (Tasks 13, 14, 23). Ten walk cases, covering diagram legibility, index behavior, responsive layout, error isolation, print, inertness, graph correctness, the pending notice, cross-browser parity, and HTML in a heading through the mermaid label path.
+**Walk-tag coverage.** Twenty-three tasks, each tagged. Three are `browser-walk-only` (Tasks 13, 14, 23). Eleven walk cases, covering diagram legibility, index behavior, responsive layout, error isolation, print, inertness, graph correctness, the pending notice, cross-browser parity, HTML in a heading through the mermaid label path, and duplicate unnamespaced diagram ids across the two theme variants.
 
 **Known risk carried forward.** Task 22 cannot pass from the working tree alone — it needs a real plugin install, and if the plugin payload does not ship `assets/`, Step 3 of that task is where it surfaces. That is deliberate: the spec names this the single highest-leverage failure point in the change.

@@ -899,8 +899,53 @@ chk "strict security level" \
 # to be inert. htmlLabels:false is what closes it.
 chk "flowchart labels are SVG text, never innerHTML" \
   "$(grep -c 'htmlLabels:false' "$S/template.html")" "1"
+# ...and initialize() is not a control over untrusted content on its own.
+# Mermaid 10.9.1 lets a %%{init: ...}%% directive in the payload override any
+# key absent from its `secure` list, whose stock value omits BOTH keys this
+# file depends on. Reproduced on real render.sh output by two routes -- a
+# payload fence, and a task heading reaching mermaid through Task 12's
+# generated DAG label -- each yielding a live <img src=...>, two
+# <foreignObject> elements, and a render that never settled. Pinned exact:
+# dropping either added key silently reopens the bypass, and no other
+# assertion in this suite can see it.
+chk "htmlLabels and theme are out of reach of a payload init directive" \
+  "$(grep -cF 'secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme"],' "$S/template.html")" "1"
 chk "failing pass never clobbers a good render" \
   "$(grep -c 'box.querySelector(".d-light svg")' "$S/template.html")" "1"
+# ...but it must not do so silently. That early return was the only path in the
+# section producing neither a DOM signal nor a console line: a box that is a
+# correct diagram in light and an empty card in dark, with nothing to say why.
+chk "a pass that fails over an existing good render still reports" \
+  "$(grep -cF 'warn("mermaid: " + cls + " pass for an already-rendered diagram", err);' "$S/template.html")" "1"
+# The reduce is sequential, so a box that never settles stalls every later
+# diagram AND the whole second pass, which only starts once the first drains.
+# Measured before the race landed, on a four-diagram brief whose first fence
+# carried the directive above: 0 of 4 diagrams in light, 0 of 4 in dark.
+chk "every render is raced against a timeout" \
+  "$(grep -cF 'raceTimeout(mermaid.render(id, src))' "$S/template.html")" "1"
+# The race has to REJECT. A timeout that resolved would hand the success branch
+# an undefined result and leave an empty slot with no error card and no console
+# line -- the exact silence the race exists to remove.
+chk "the timeout rejects rather than resolving" \
+  "$(grep -cF 'reject(new Error("Render timed out after ' "$S/template.html")" "1"
+# Mermaid removes its temp container only on the success path; both failure
+# exits throw with it still attached to <body>, where it shows mermaid's own
+# error graphic outside .shell, unclassed, in both themes and in print. Its
+# only other cleanup is a later render reusing the same id, which monotonic
+# seq guarantees never happens.
+chk "both of mermaid's orphaned temp container ids are cleaned up" \
+  "$(grep -cF '["d" + id, "i" + id].forEach(function(orphan){' "$S/template.html")" "1"
+# "on every failure path" is an ordering claim, not a presence one: placed
+# after either early return, the cleanup would skip the two paths that return
+# early and leave the orphan attached. Line numbers are what can see that.
+orphan_ln=$(grep -n '\["d" + id, "i" + id\].forEach' "$S/template.html" | head -1 | cut -d: -f1)
+early_ln=$(grep -n 'if (box.classList.contains("mermaid-error")) return;' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$orphan_ln" ] && [ -n "$early_ln" ] && [ "$orphan_ln" -lt "$early_ln" ]; then
+  ok "the orphan cleanup runs before both early returns, so it covers every failure path"
+else
+  no "the orphan cleanup runs before both early returns, so it covers every failure path" \
+     "cleanup=[${orphan_ln:-missing}] early-return=[${early_ln:-missing}]"
+fi
 # Containment for the one section this task adds, by label and floor, per the
 # doctrine at the top of the IIFE. The renderer's kick-off is a top-level
 # statement like every other section, so it is guarded like every other section.
@@ -914,10 +959,12 @@ n=$(grep -c 'guard("' "$S/template.html")
 # rejection from the light pass's reduce chain, and the SECOND renderPass call,
 # which runs inside a .then callback where guard() has already returned. Both
 # surface as unhandled rejections -- no label, nothing the console can pin on
-# this file. The terminal .catch is what closes them, so pin it byte-exact:
-# a presence grep for the label alone would also match it sitting in a comment.
+# this file. The terminal .catch is what closes them. Pinned by its chain-level
+# indent, which is what distinguishes it from the per-box .catch above.
 chk "the render chain has a terminal catch, not just a guard" \
-  "$(grep -cF '.catch(function(e){ warn("mermaid: dual-theme render chain", e); });' "$S/template.html")" "1"
+  "$(grep -cF '      .catch(function(e){' "$S/template.html")" "1"
+chk "the terminal catch reports through warn(), like every guarded section" \
+  "$(grep -cF 'warn("mermaid: dual-theme render chain", e);' "$S/template.html")" "1"
 # ...and it has to be chained AFTER the dark pass, or it covers the light pass
 # only and the second pass is back to an unhandled rejection. Presence greps
 # cannot see chain order; line numbers can.
@@ -929,6 +976,19 @@ else
   no "the terminal catch is chained after the dark pass, so it covers both passes" \
      "dark=[${darkpass_ln:-missing}] catch=[${mmcatch_ln:-missing}]"
 fi
+# Completion marker for the walk harness (Task 17): waitForSelector beats a
+# fixed waitForTimeout, and it is the only thing that can tell "slow" apart
+# from "stalled". Two, not one -- marked on the failure path as well, since a
+# marker that appeared only on success hands the harness back the same
+# ambiguity it exists to remove.
+chk "the run announces completion on every path that ends it" \
+  "$(grep -c 'root.setAttribute("data-diagrams"' "$S/template.html")" "3"
+# The third is not padding. A guard()-caught synchronous throw means the chain
+# never starts, so neither .then nor .catch can ever run -- observed at 63s with
+# the attribute still absent, i.e. a harness waiting on it hangs on the one path
+# that is already a hard failure. Pin the synchronous fallback by itself.
+chk "a guard()-caught throw still ends with a marker, not silence" \
+  "$(grep -cF 'if (!diagramsStarted) root.setAttribute("data-diagrams", "failed");' "$S/template.html")" "1"
 # Same mirror as Task 12's, for the same reason: this task's snippet was edited
 # in the plan (the bare kick-off call gained its guard), so plan and template
 # can now drift, and nothing else in this suite can see it.
@@ -941,6 +1001,7 @@ fi
 MMD_HEAD='  /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */'
 mirror_chk "Task 13's plan snippet is byte-identical to the shipped template" \
   "$MMD_HEAD" "$S/template.html" "$MMD_HEAD" '})();'
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -748,10 +748,70 @@ __BRIEF_B64__
 
   /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */
   var seq = 0;
+
+  /* A box whose render never settles must not take the document with it. This
+     renderer is a sequential reduce, so one hung box stalls every later diagram
+     AND the entire second pass, which only begins once the first has drained.
+     Measured on a four-diagram brief whose first fence carried the init
+     directive described below: 0 of 4 diagrams in light, 0 of 4 in dark, four
+     empty bordered boxes, nothing in the console. Racing each render turns that
+     into one error card and lets the chain continue.
+
+     Considered and declined: interleaving the two passes per box. It shrinks
+     the blast radius but does not fix the stall — a hung box still blocks every
+     later box in both themes — whereas the race removes the stall outright.
+     Do not re-propose it as an alternative to this.
+
+     8000ms is chosen against measurement, not taste. Mermaid renders locally
+     with no network fetch and refuses graphs past its own maxEdges/maxTextSize
+     limits, so there is no legitimate mechanism by which a render takes
+     seconds: a typical diagram in this format settles in 9-32ms, and a
+     deliberately oversized 121-node flowchart — far larger than any brief
+     produces — in 217ms. 8s is roughly 36x that worst case, so a slow or
+     throttled machine cannot false-positive and destroy a good diagram, while
+     still sitting inside the window where a reader is waiting rather than
+     concluding the page is broken. */
+  var RENDER_TIMEOUT_MS = 8000;
+  function raceTimeout(p){
+    return new Promise(function(resolve, reject){
+      /* Rejects, never resolves. A timeout that resolved would hand the success
+         branch an undefined result and leave an empty slot behind with no error
+         card and no console line — the silent failure this section refuses. */
+      var timer = setTimeout(function(){
+        reject(new Error("Render timed out after " + RENDER_TIMEOUT_MS + "ms"));
+      }, RENDER_TIMEOUT_MS);
+      Promise.resolve(p).then(
+        function(v){ clearTimeout(timer); resolve(v); },
+        function(e){ clearTimeout(timer); reject(e); }
+      );
+    });
+  }
+
   function renderPass(themeName, cls){
     if (typeof mermaid === "undefined") return Promise.resolve();
     mermaid.initialize({
       startOnLoad:false, securityLevel:"strict",
+      /* initialize() is not, on its own, a control over untrusted content.
+         Mermaid 10.9.1 lets a %%{init: ...}%% directive inside a fence override
+         any config key absent from the `secure` list, and its stock list —
+         ["secure","securityLevel","startOnLoad","maxTextSize","maxEdges"] —
+         omits both of the keys this file depends on. Extending the list is what
+         turns them into controls; the sanitiser walks a directive recursively at
+         every depth, so naming the leaf key is enough.
+
+         Observed against this exact bundle, on real render.sh output, by two
+         independent routes: a mermaid fence in the payload, and a task heading
+         reaching mermaid through the generated dependency graph's node label
+         (single quotes survive buildDag's double-quote replacement). Both
+         produced a live <img src=...> attached to the document, two
+         <foreignObject> elements, and a render that never settled — hence zero
+         diagrams in either theme, no error box, and a silent console.
+         securityLevel IS on the stock list, so a "loose" directive is refused
+         and DOMPurify still strips event handlers: this was a beacon plus
+         denial-of-render, not script execution. theme belongs here on its own
+         merits too — a theme directive makes the LIGHT slot paint with
+         dark-theme colours, which print, forcing .d-light, then reproduces. */
+      secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme"],
       /* Labels as SVG text, not innerHTML. See this task's preamble: at strict,
          v10 still inserts flowchart labels as HTML and DOMPurify keeps <img>,
          so an image tag in a task heading fires a real network request out of a
@@ -765,7 +825,7 @@ __BRIEF_B64__
         var src = box.dataset.src, id = "mmd-" + (seq++);
         return Promise.resolve()
           .then(function(){ return mermaid.parse(src); })
-          .then(function(){ return mermaid.render(id, src); })
+          .then(function(){ return raceTimeout(mermaid.render(id, src)); })
           .then(function(res){
             var slot = document.createElement("div");
             slot.className = cls;
@@ -773,12 +833,38 @@ __BRIEF_B64__
             box.appendChild(slot);
           })
           .catch(function(err){
+            /* Before any early return, so it runs on every failure path.
+               Mermaid removes its temp container only on the success path: both
+               failure exits throw with it still attached to <body>, where it
+               shows mermaid's own error graphic outside .shell, unclassed and
+               with no rule that hides it, in both themes and in print. Its only
+               other cleanup is a later render reusing the same id, and seq is
+               monotonic — which it must stay, since a reused id would also make
+               v10's opening getElementById(id) removal tear the previous pass's
+               injected <svg> back out of the box. */
+            ["d" + id, "i" + id].forEach(function(orphan){
+              var n = document.getElementById(orphan);
+              if (n && n.parentNode) n.parentNode.removeChild(n);
+            });
+            /* Unreachable as the code stands — a failing pass removes data-src
+               below, so the next pass's [data-src] re-query never revisits this
+               box. Kept as defence: it is the only thing standing between a
+               future third pass, or a retry, and an error card rebuilt on top
+               of itself. */
             if (box.classList.contains("mermaid-error")) return;
             /* Never destroy a pass that already succeeded. The two passes
                mutate one container; a dark-pass failure would otherwise
                replace three perfectly good light renders with error boxes —
                and print, which forces .d-light, would show the error. */
-            if (box.querySelector(".d-light svg")) return;
+            if (box.querySelector(".d-light svg")) {
+              /* ...but say so. Keeping the good render is right; keeping it
+                 silently is not. This was the one path in the section that
+                 produced neither a DOM signal nor a console line: a box that is
+                 a correct diagram in light and an empty card in dark, with
+                 nothing anywhere to explain the difference. */
+              warn("mermaid: " + cls + " pass for an already-rendered diagram", err);
+              return;
+            }
             box.className = "mermaid-error";
             box.removeAttribute("data-src");
             box.innerHTML =
@@ -800,11 +886,31 @@ __BRIEF_B64__
      guard() has long since returned. Without it a dark-pass failure is an
      unhandled rejection: no label, no warn(), nothing attributable to this
      file — the silent failure the containment doctrine above exists to refuse. */
+  var diagramsStarted = false;
   guard("mermaid: start dual-theme render", function(){
     renderPass("default", "d-light")
       .then(function(){ return renderPass("dark", "d-dark"); })
-      .catch(function(e){ warn("mermaid: dual-theme render chain", e); });
+      /* Completion marker for the walk harness: a waitForSelector on this beats
+         a fixed waitForTimeout, and it is the only thing that can tell "slow"
+         apart from "stalled". Marked on the failure path too — a run that ended
+         in an error card has still ended, and a marker that appeared only on
+         success would hand the harness straight back the ambiguity it exists to
+         remove. */
+      .then(function(){ root.setAttribute("data-diagrams", "done"); })
+      .catch(function(e){
+        warn("mermaid: dual-theme render chain", e);
+        root.setAttribute("data-diagrams", "failed");
+      });
+    diagramsStarted = true;
   });
+  /* The third state, found by measurement rather than reasoning: when guard()
+     catches a synchronous throw the chain never starts, so neither .then nor
+     .catch above can ever run and NO marker is set. Observed at 63s with the
+     attribute still absent — a harness waiting on [data-diagrams] hangs forever
+     on the one path that is already a hard failure, which is the ambiguity the
+     marker exists to remove, reintroduced at the far end. Mark it here,
+     synchronously, so the attribute means "the run ended" on every path. */
+  if (!diagramsStarted) root.setAttribute("data-diagrams", "failed");
 })();
 </script>
 </body>
