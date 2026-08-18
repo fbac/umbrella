@@ -738,8 +738,29 @@ chk "the loose digit harvest is gone" \
   "$(grep -cF 'dm[1].match(/\d+/g)' "$S/template.html")" "0"
 chk "parentheticals are stripped before the split" \
   "$(grep -cF 'replace(/\([^)]*\)/g, " ")' "$S/template.html")" "1"
-chk "the declaration is split into tokens on comma/semicolon/and/&/+" \
-  "$(grep -cF 'split(/\s*(?:,|;|\band\b|&|\+)\s*/i)' "$S/template.html")" "1"
+chk "the declaration is split into tokens on comma/semicolon/and/&/+/dash" \
+  "$(grep -cF 'split(/\s*(?:,|;|\band\b|&|\+|[–—]|\s-\s)\s*/i)' "$S/template.html")" "1"
+# The dash separators and the range pre-pass are ONE change. Dashes alone turn
+# "Tasks 1-3" into ["Tasks 1", "3"] -- edges from 1 and 3 with 2 silently
+# missing, which trades honest silence for a quietly incomplete graph. Assert
+# the pairing rather than each half, so neither can land without the other.
+dash_split=$(grep -cF '|[–—]|\s-\s' "$S/template.html")
+range_call=$(grep -cF 'expandRanges(dm[1].replace' "$S/template.html")
+if [ "$dash_split" = "1" ] && [ "$range_call" = "1" ]; then
+  ok "dash separators and the range pre-pass landed together, never one without the other"
+else
+  no "dash separators and the range pre-pass landed together, never one without the other" \
+     "dash-in-split=[$dash_split] expandRanges-call=[$range_call]"
+fi
+# The composed call is the ordering: parentheticals stripped, THEN ranges
+# expanded, and .split chained on that result. Expanding after the split is
+# too late -- the range is already two tokens by then.
+chk "ranges are expanded after parentheticals are stripped and before the split" \
+  "$(grep -cF 'expandRanges(dm[1].replace(/\([^)]*\)/g, " "))' "$S/template.html")" "1"
+chk "only plain integers are treated as range endpoints, never a dotted id's tail" \
+  "$(grep -cF '/(^|[^\d.])(\d+)\s*[–—-]\s*(\d+)(?![\d.])/g' "$S/template.html")" "1"
+chk "an absurd or descending span is left alone rather than expanded" \
+  "$(grep -cF 'if (hi < lo || hi - lo > 64) return all;' "$S/template.html")" "1"
 chk "a token earns an edge only if the whole token is a task reference" \
   "$(grep -cF '/^\s*(?:Tasks?\s*)?#?(\d+(?:\.\d+)*)\.?\s*$/i' "$S/template.html")" "1"
 chk "self-edges are dropped" \
@@ -771,8 +792,23 @@ chk "the old source-level claim is gone" \
   "$(grep -c 'tasks are independent' "$S/template.html")" "0"
 chk "the negative caption describes what was recognised, not what the plan says" \
   "$(grep -c 'no Depends on: declarations were recognised' "$S/template.html")" "1"
-chk "the suppression caption says why it is suppressed" \
-  "$(grep -c 'dependency graph suppressed' "$S/template.html")" "1"
+# A suppressed graph is the most important thing this feature ever says. As a
+# .dag-caption with no diagram above it, it rendered as a faint 12px mono line
+# tucked under the Plan heading by a negative margin decorating nothing.
+chk "a suppressed graph is announced as a banner, not as a caption" \
+  "$(grep -cF 'banner("Dependency graph suppressed"' "$S/template.html")" "1"
+# The caption is now unconditional -- the suppression path returns before it is
+# built. A ternary here would mean the caption still carries that message.
+chk "the caption no longer branches on whether a graph exists" \
+  "$(grep -cF 'cap.textContent = dag.edges' "$S/template.html")" "1"
+sup_ln=$(grep -n 'banner("Dependency graph suppressed"' "$S/template.html" | head -1 | cut -d: -f1)
+cap_ln=$(grep -n 'cap.className = "dag-caption";' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$sup_ln" ] && [ -n "$cap_ln" ] && [ "$sup_ln" -lt "$cap_ln" ]; then
+  ok "the suppression path returns before any caption element is built"
+else
+  no "the suppression path returns before any caption element is built" \
+     "banner=[${sup_ln:-missing}] caption=[${cap_ln:-missing}]"
+fi
 
 # A4. A trailing h2 terminates sectionNodes, but trailing content with no
 # heading does not: the last task's section runs to EOF, so a closing paragraph
@@ -810,6 +846,45 @@ else
   no "the diagram is inserted before its caption, which .dag-caption's negative top margin depends on" \
      "box=[${dagbox_ln:-missing}] cap=[${dagcap_ln:-missing}]"
 fi
+
+echo "== plan/template mirror =="
+# Tasks 13, 14 and 15 quote this plan's code fences verbatim. A snippet that has
+# drifted from the shipped file is a stale instruction, and nothing else in this
+# suite can see it: the drift stays invisible until a later task applies the
+# snippet and lands code that no longer matches what is here. Verifying it by
+# hand in a scratchpad is exactly the check that is not there when it is needed.
+#
+# Written to generalise. mirror_chk takes (label, plan-fence first line, file,
+# file first line, file stop line), so Task 16 can point it at every mirrored
+# task rather than reinventing the extraction.
+PLAN="$R/docs/plans/2026-07-30-visual-change-briefs.md"
+# Trailing blank lines are an artifact of where each slice happens to end, not
+# drift, and they are the only difference the two extractions legitimately have.
+notrail(){ awk '{ l[NR] = $0 }
+                 END { n = NR; while (n > 0 && l[n] ~ /^[[:space:]]*$/) n--;
+                       for (i = 1; i <= n; i++) print l[i] }'; }
+# Body of the fenced block in $1 whose first body line is exactly $2.
+fence_body(){ awk -v m="$2" '$0 == m { on = 1 } on { if ($0 == "```") exit; print }' "$1" | notrail; }
+# Lines of $1 from the line matching $2 up to but excluding the line matching $3.
+file_slice(){ awk -v a="$2" -v b="$3" '$0 == a { on = 1 } on { if ($0 == b) exit; print }' "$1" | notrail; }
+mirror_chk(){
+  fence_body "$PLAN" "$2"       > "$W/mirror.plan"
+  file_slice "$3"    "$4"  "$5" > "$W/mirror.file"
+  # Both sides non-empty FIRST. A renamed plan, a reworded marker or a moved
+  # block would otherwise leave two empty extractions comparing equal, and this
+  # check would report PASS for a mirror it never actually looked at -- the
+  # silent-success failure mode the Preflight calls out by name.
+  if [ ! -s "$W/mirror.plan" ] || [ ! -s "$W/mirror.file" ]; then
+    no "$1" "extraction empty: plan=$(wc -l < "$W/mirror.plan" | tr -d ' ')L file=$(wc -l < "$W/mirror.file" | tr -d ' ')L -- a marker moved or a file was renamed"
+  elif diff -q "$W/mirror.plan" "$W/mirror.file" >/dev/null 2>&1; then
+    ok "$1"
+  else
+    no "$1" "drifted on $(diff "$W/mirror.plan" "$W/mirror.file" | grep -c '^[<>]') lines; first: $(diff "$W/mirror.plan" "$W/mirror.file" | sed -n '2p' | cut -c1-80)"
+  fi
+}
+DAG_HEAD='  /* ---------- task dependency graph, built from **Depends on:** ---------- */'
+mirror_chk "Task 12's plan snippet is byte-identical to the shipped template" \
+  "$DAG_HEAD" "$S/template.html" "$DAG_HEAD" '  /* ---------- walk-tag badges ---------- */'
 
 echo
 echo "shell: $pass passed, $fail failed"

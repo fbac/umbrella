@@ -1667,8 +1667,29 @@ chk "the loose digit harvest is gone" \
   "$(grep -cF 'dm[1].match(/\d+/g)' "$S/template.html")" "0"
 chk "parentheticals are stripped before the split" \
   "$(grep -cF 'replace(/\([^)]*\)/g, " ")' "$S/template.html")" "1"
-chk "the declaration is split into tokens on comma/semicolon/and/&/+" \
-  "$(grep -cF 'split(/\s*(?:,|;|\band\b|&|\+)\s*/i)' "$S/template.html")" "1"
+chk "the declaration is split into tokens on comma/semicolon/and/&/+/dash" \
+  "$(grep -cF 'split(/\s*(?:,|;|\band\b|&|\+|[–—]|\s-\s)\s*/i)' "$S/template.html")" "1"
+# The dash separators and the range pre-pass are ONE change. Dashes alone turn
+# "Tasks 1-3" into ["Tasks 1", "3"] -- edges from 1 and 3 with 2 silently
+# missing, which trades honest silence for a quietly incomplete graph. Assert
+# the pairing rather than each half, so neither can land without the other.
+dash_split=$(grep -cF '|[–—]|\s-\s' "$S/template.html")
+range_call=$(grep -cF 'expandRanges(dm[1].replace' "$S/template.html")
+if [ "$dash_split" = "1" ] && [ "$range_call" = "1" ]; then
+  ok "dash separators and the range pre-pass landed together, never one without the other"
+else
+  no "dash separators and the range pre-pass landed together, never one without the other" \
+     "dash-in-split=[$dash_split] expandRanges-call=[$range_call]"
+fi
+# The composed call is the ordering: parentheticals stripped, THEN ranges
+# expanded, and .split chained on that result. Expanding after the split is
+# too late -- the range is already two tokens by then.
+chk "ranges are expanded after parentheticals are stripped and before the split" \
+  "$(grep -cF 'expandRanges(dm[1].replace(/\([^)]*\)/g, " "))' "$S/template.html")" "1"
+chk "only plain integers are treated as range endpoints, never a dotted id's tail" \
+  "$(grep -cF '/(^|[^\d.])(\d+)\s*[–—-]\s*(\d+)(?![\d.])/g' "$S/template.html")" "1"
+chk "an absurd or descending span is left alone rather than expanded" \
+  "$(grep -cF 'if (hi < lo || hi - lo > 64) return all;' "$S/template.html")" "1"
 chk "a token earns an edge only if the whole token is a task reference" \
   "$(grep -cF '/^\s*(?:Tasks?\s*)?#?(\d+(?:\.\d+)*)\.?\s*$/i' "$S/template.html")" "1"
 chk "self-edges are dropped" \
@@ -1700,8 +1721,23 @@ chk "the old source-level claim is gone" \
   "$(grep -c 'tasks are independent' "$S/template.html")" "0"
 chk "the negative caption describes what was recognised, not what the plan says" \
   "$(grep -c 'no Depends on: declarations were recognised' "$S/template.html")" "1"
-chk "the suppression caption says why it is suppressed" \
-  "$(grep -c 'dependency graph suppressed' "$S/template.html")" "1"
+# A suppressed graph is the most important thing this feature ever says. As a
+# .dag-caption with no diagram above it, it rendered as a faint 12px mono line
+# tucked under the Plan heading by a negative margin decorating nothing.
+chk "a suppressed graph is announced as a banner, not as a caption" \
+  "$(grep -cF 'banner("Dependency graph suppressed"' "$S/template.html")" "1"
+# The caption is now unconditional -- the suppression path returns before it is
+# built. A ternary here would mean the caption still carries that message.
+chk "the caption no longer branches on whether a graph exists" \
+  "$(grep -cF 'cap.textContent = dag.edges' "$S/template.html")" "1"
+sup_ln=$(grep -n 'banner("Dependency graph suppressed"' "$S/template.html" | head -1 | cut -d: -f1)
+cap_ln=$(grep -n 'cap.className = "dag-caption";' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$sup_ln" ] && [ -n "$cap_ln" ] && [ "$sup_ln" -lt "$cap_ln" ]; then
+  ok "the suppression path returns before any caption element is built"
+else
+  no "the suppression path returns before any caption element is built" \
+     "banner=[${sup_ln:-missing}] caption=[${cap_ln:-missing}]"
+fi
 
 # A4. A trailing h2 terminates sectionNodes, but trailing content with no
 # heading does not: the last task's section runs to EOF, so a closing paragraph
@@ -1739,12 +1775,51 @@ else
   no "the diagram is inserted before its caption, which .dag-caption's negative top margin depends on" \
      "box=[${dagbox_ln:-missing}] cap=[${dagcap_ln:-missing}]"
 fi
+
+echo "== plan/template mirror =="
+# Tasks 13, 14 and 15 quote this plan's code fences verbatim. A snippet that has
+# drifted from the shipped file is a stale instruction, and nothing else in this
+# suite can see it: the drift stays invisible until a later task applies the
+# snippet and lands code that no longer matches what is here. Verifying it by
+# hand in a scratchpad is exactly the check that is not there when it is needed.
+#
+# Written to generalise. mirror_chk takes (label, plan-fence first line, file,
+# file first line, file stop line), so Task 16 can point it at every mirrored
+# task rather than reinventing the extraction.
+PLAN="$R/docs/plans/2026-07-30-visual-change-briefs.md"
+# Trailing blank lines are an artifact of where each slice happens to end, not
+# drift, and they are the only difference the two extractions legitimately have.
+notrail(){ awk '{ l[NR] = $0 }
+                 END { n = NR; while (n > 0 && l[n] ~ /^[[:space:]]*$/) n--;
+                       for (i = 1; i <= n; i++) print l[i] }'; }
+# Body of the fenced block in $1 whose first body line is exactly $2.
+fence_body(){ awk -v m="$2" '$0 == m { on = 1 } on { if ($0 == "```") exit; print }' "$1" | notrail; }
+# Lines of $1 from the line matching $2 up to but excluding the line matching $3.
+file_slice(){ awk -v a="$2" -v b="$3" '$0 == a { on = 1 } on { if ($0 == b) exit; print }' "$1" | notrail; }
+mirror_chk(){
+  fence_body "$PLAN" "$2"       > "$W/mirror.plan"
+  file_slice "$3"    "$4"  "$5" > "$W/mirror.file"
+  # Both sides non-empty FIRST. A renamed plan, a reworded marker or a moved
+  # block would otherwise leave two empty extractions comparing equal, and this
+  # check would report PASS for a mirror it never actually looked at -- the
+  # silent-success failure mode the Preflight calls out by name.
+  if [ ! -s "$W/mirror.plan" ] || [ ! -s "$W/mirror.file" ]; then
+    no "$1" "extraction empty: plan=$(wc -l < "$W/mirror.plan" | tr -d ' ')L file=$(wc -l < "$W/mirror.file" | tr -d ' ')L -- a marker moved or a file was renamed"
+  elif diff -q "$W/mirror.plan" "$W/mirror.file" >/dev/null 2>&1; then
+    ok "$1"
+  else
+    no "$1" "drifted on $(diff "$W/mirror.plan" "$W/mirror.file" | grep -c '^[<>]') lines; first: $(diff "$W/mirror.plan" "$W/mirror.file" | sed -n '2p' | cut -c1-80)"
+  fi
+}
+DAG_HEAD='  /* ---------- task dependency graph, built from **Depends on:** ---------- */'
+mirror_chk "Task 12's plan snippet is byte-identical to the shipped template" \
+  "$DAG_HEAD" "$S/template.html" "$DAG_HEAD" '  /* ---------- walk-tag badges ---------- */'
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: every assertion in the two new blocks FAILs — both blocks are new — exit 1.
+Expected: every assertion in the three new blocks FAILs — all three blocks are new — exit 1.
 
 - [ ] **Step 3: Add the dependency graph builder**
 
@@ -1769,6 +1844,24 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
     }
     /* "." is not legal in a mermaid node name; the DISPLAY id keeps it. */
     function nodeName(id){ return "T" + id.replace(/\./g, "_"); }
+    /* Ranges are expanded BEFORE the split, and the two changes are one change:
+       adding dashes to the split alternation without this turns "Tasks 1–3"
+       into ["Tasks 1", "3"], which draws edges from 1 and 3 and drops 2 without
+       saying so — a quietly incomplete graph, which is strictly worse than the
+       honest silence it replaces. Plain integers only: "Task 2.1-2.3" is not a
+       range, and the (^|[^\d.]) guard is what keeps a dotted id's tail from
+       being read as one endpoint. Bounded at 64 because a descending or absurd
+       span is prose that happens to contain two numbers and a dash ("lines
+       1-9999"), not a declaration, and inventing thousands of ids from it costs
+       more than ignoring it; 64 is far wider than any plan this format targets. */
+    function expandRanges(str){
+      return str.replace(/(^|[^\d.])(\d+)\s*[–—-]\s*(\d+)(?![\d.])/g, function(all, pre, a, b){
+        var lo = parseInt(a, 10), hi = parseInt(b, 10), out = [];
+        if (hi < lo || hi - lo > 64) return all;
+        for (var n = lo; n <= hi; n++) out.push(n);
+        return pre + out.join(", ");
+      });
+    }
     var tasks = [], edges = [];
     headings.forEach(function(h){
       /* Task 11's toc capture is a guarded section: if it ever catches, the
@@ -1805,8 +1898,13 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
              numbers larger than the task count, so its protection is strongest
              on the two-task plans that do not need it and nil on the long ones
              this feature exists for. A token earns an edge only if the whole
-             token is a task reference. */
-          dm[1].replace(/\([^)]*\)/g, " ").split(/\s*(?:,|;|\band\b|&|\+)\s*/i)
+             token is a task reference.
+
+             Dashes are separators too, so "Task 11 — see the note" keeps its
+             one real dependency instead of dropping it for the trailing prose.
+             That is why expandRanges runs first: see its comment. */
+          expandRanges(dm[1].replace(/\([^)]*\)/g, " "))
+            .split(/\s*(?:,|;|\band\b|&|\+|[–—]|\s-\s)\s*/i)
             .forEach(function(tok){
               var t = tok.match(/^\s*(?:Tasks?\s*)?#?(\d+(?:\.\d+)*)\.?\s*$/i);
               if (!t) return;
@@ -1823,7 +1921,13 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
     /* Suppress rather than mislead. Two headings on the same normalised number
        cannot be drawn without deleting one of them, and a graph that quietly
        drops a task while captioning itself as the plan's dependency graph is
-       the exact failure class this file exists to refuse. */
+       the exact failure class this file exists to refuse.
+
+       Not redundant now that ids are normalised — normId is itself a source of
+       collisions the raw text does not have. "### Task 2.1" and "### Task 2.01"
+       are two distinct headings that both normalise to 2.1, and this check is
+       the only thing standing between that and a silently deleted task. Do not
+       delete it as dead code. */
     if (dup) return { src: null, dup: dup };
     var seen = {};
     edges = edges.filter(function(e){
@@ -1879,6 +1983,19 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
     if (!tasks.length || !planH2) return;
     var dag = buildDag(tasks);
     if (!dag) return;
+    /* A suppressed graph is a banner, not a caption. .dag-caption is a faint
+       12px mono line with a negative top margin, shaped to tuck under a diagram;
+       with no diagram above it, the most important message this feature emits
+       renders as a subtitle to the Plan heading and its margin decorates
+       nothing. banner() is the surface this file already has for "something
+       about what you are reading is not what it appears", and a suppressed
+       graph is squarely that. */
+    if (!dag.src) {
+      banner("Dependency graph suppressed",
+        "Two task headings carry the number " + dag.dup + ", so any graph drawn " +
+        "from them would silently drop one.");
+      return;
+    }
     var cap = document.createElement("div");
     cap.className = "dag-caption";
     /* Describes the PARSE, never the source. A caption announcing that the
@@ -1887,11 +2004,9 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
        cells — shapes the P-only scan above deliberately skips so that fixture
        fences inside a plan cannot fabricate edges. Saying what was recognised
        is true in every case and costs nothing. */
-    cap.textContent = dag.src
-      ? (dag.edges ? "task dependency graph — derived from declared Depends on:"
-                   : "no Depends on: declarations were recognised")
-      : ("dependency graph suppressed — two task headings carry the number " +
-         dag.dup + ", so any graph drawn from them would silently drop one");
+    cap.textContent = dag.edges
+      ? "task dependency graph — derived from declared Depends on:"
+      : "no Depends on: declarations were recognised";
     /* Anchored to planH2, not to the first task heading's parent node. Those
        are the same element only while planTasks() returns siblings of the
        sentinel; Task 15 replaces it with a compareDocumentPosition filter that
@@ -1900,12 +2015,10 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
        first, caption second: .dag-caption pulls itself up under the diagram
        with a negative top margin. */
     var anchor = planH2.nextSibling;
-    if (dag.src) {
-      var box = document.createElement("div");
-      box.className = "mermaid-block";
-      box.dataset.src = dag.src;
-      planH2.parentNode.insertBefore(box, anchor);
-    }
+    var box = document.createElement("div");
+    box.className = "mermaid-block";
+    box.dataset.src = dag.src;
+    planH2.parentNode.insertBefore(box, anchor);
     planH2.parentNode.insertBefore(cap, anchor);
   });
 ```
@@ -1913,7 +2026,7 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: both new blocks PASS and the suite reports 188 passed, 0 failed.
+Expected: all three new blocks PASS and the suite reports 195 passed, 0 failed.
 
 - [ ] **Step 5: Commit**
 
@@ -1930,15 +2043,22 @@ git commit -m "feat(change-brief): derive task graph from Depends on, scoped to 
 
 Mermaid v10 is async-only: the v8/v9 callback form produces no output and no exception, leaving every diagram blank. Each fence renders twice up front so theme switching is a pure CSS toggle and print can select the light variant synchronously.
 
-`flowchart: { htmlLabels: false }` is not cosmetic and is not optional. The reason splits into something observed and something inferred from it, and the two are kept apart deliberately — a later reader will take whatever this paragraph asserts as verified.
+`flowchart: { htmlLabels: false }` is not cosmetic and is not optional. What follows separates what has been observed from what has only been inferred, because a later reader will take whatever this paragraph asserts as verified — and that boundary has already moved once.
 
-**Observed**, in two independent runs against the vendored 10.9.1 bundle: mermaid v10 builds flowchart labels as *markup*, not as text. A `<b>x</b>` label at `securityLevel:"strict"` comes back as a real `<b>` element inside a `<foreignObject>`. With `flowchart: { htmlLabels: false }` set, the same labels come back as SVG `<text>` with no element construction at all.
+**Observed**, driven against the vendored 10.9.1 bundle at `securityLevel:"strict"`:
 
-**Inferred from that, and not yet confirmed in a real browser:** if labels are constructed as elements, then any tag DOMPurify's allowlist keeps becomes a live element — and for a resource-loading tag, `img` being the obvious one, a live element means a network request from a file whose entire premise is inertness in a webmail preview pane or a DLP sandbox. Nobody has yet watched `### Task 4: <img src=https://evil.example.invalid/x.png>` actually issue that request. `DOMPurify` is not reachable on `window` from the bundle, so its allowlist has been read rather than exercised, and an `<img>`-bearing label never settles under jsdom, so the render cannot be driven to the point where a request would fire. **Walk case 10 confirms or refutes this, and its result belongs back in this paragraph.**
+- Mermaid v10 builds flowchart labels as *markup*, not as text. A `<b>x</b>` label comes back as a real `<b>` element inside a `<foreignObject>`.
+- A heading carrying `<img src=https://evil.example.invalid/x.png>` produces a **real `<img>` element, attached to the live document, holding that exact URL**. It is reachable by polling the DOM mid-render: the render promise hangs afterwards, but the element is already in the document by then. Counted: two `<foreignObject>` elements, one `<img>`.
+- **DOMPurify runs, and does not remove it.** The sanitiser is not being bypassed, and its allowlist has been exercised rather than read: `<svg onload=alert(1)>` comes back as `<svg></svg>` — handler stripped, element kept — and the `<img src=…>` survives that same pass.
+- With `flowchart: { htmlLabels: false }`, the same labels produce zero `<img>` elements, zero `<foreignObject>` elements, and the render settles instead of hanging.
 
-The fix does not wait on that confirmation, because the observed half already justifies it: a document whose whole premise is inertness must not hand un-escaped payload text to a renderer that constructs elements out of it. That is also a door Task 9 never covered — Task 9 escapes payload HTML at parse time so the DOM holds the literal string, and Tasks 11 and 12 are the first paths that hand that literal *back* to a renderer which un-escapes it. Setting it in `initialize` covers Task 11's fence extraction and Task 12's derived graph in one place.
+**Inferred, and still unconfirmed: only the fetch itself** — that the browser, having been handed a live `<img src>` pointing at a payload-supplied URL, then requests it. Everything up to and including that element in the document is observed; the request is not.
 
-One more consequence, recorded because the renderer below is a sequential `boxes.reduce(chain.then(...))`: a box whose render promise never settles stalls every later diagram and the whole second pass. Under jsdom an `<img>`-bearing label reproduces exactly that with HTML labels on, and does not with them off. If a future change re-enables HTML labels, or adds any renderer path that can hang, the chain must be made non-stallable (race each box against a timeout) before that change lands.
+**Do not read the harness's silence as evidence either way.** A request interceptor recorded zero attempts — but so did the control: a plain `<img>` inserted straight into `document.body` also produced zero. jsdom does not load images here at all, so that harness is structurally blind and proves nothing in either direction. "Zero requests observed" under it is not a safety result; it is a measurement that could not have detected the thing it was pointed at. **Walk case 10 is the arbiter**, and its result belongs back in this paragraph.
+
+The fix does not wait on that confirmation, and stays right even if the fetch never fires: a document whose entire premise is inertness must not hand un-escaped payload text to a renderer that constructs live elements out of it. That is also a door Task 9 never covered — Task 9 escapes payload HTML at parse time so the DOM holds the literal string, and Tasks 11 and 12 are the first paths that hand that literal *back* to a renderer which un-escapes it. Setting it in `initialize` covers Task 11's fence extraction and Task 12's derived graph in one place.
+
+One more consequence, recorded because the renderer below is a sequential `boxes.reduce(chain.then(...))`: a box whose render promise never settles stalls every later diagram and the whole second pass. The `<img>`-bearing label above is exactly that case, and the cause is now understood rather than merely observed — the constructed image element is awaiting a load that never arrives, so the render never resolves. With `htmlLabels:false` no image element is constructed and the same render settles. If a future change re-enables HTML labels, or adds any renderer path that can hang, the chain must be made non-stallable (race each box against a timeout) before that change lands.
 
 **Files:**
 - Modify: `assets/change-brief/template.html`
