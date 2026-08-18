@@ -646,8 +646,13 @@ n=$(grep -c 'guard("' "$S/template.html")
 # guarded sections and Task 12 call; wrapping it in guard() would scope the
 # declaration to the callback and its callers would fail with a ReferenceError
 # reported under someone else's label.
+# Anchored to indent 2 on purpose. An unanchored 'function sectionNodes' count
+# stays at 1 when the declaration is wrapped in a guard() -- the exact failure
+# this label names -- because the declaration is still there, just at indent 4,
+# the way decodeEntities sits inside the inertness guard. The anchor is what
+# makes the assertion test its own claim.
 chk "sectionNodes stays a declaration at IIFE scope, not inside a guard()" \
-  "$(grep -c 'function sectionNodes' "$S/template.html")" "1"
+  "$(grep -c '^  function sectionNodes' "$S/template.html")" "1"
 chk "the fill bar floors its percentage rather than rounding 199/200 to 100%" \
   "$(grep -c 'Math.floor(done / boxes.length \* 100)' "$S/template.html")" "1"
 chk "callout marker is read from the blockquote's own first child, not any descendant p" \
