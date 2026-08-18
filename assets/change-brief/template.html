@@ -513,6 +513,96 @@ __BRIEF_B64__
     return out;
   }
 
+  /* ---------- task dependency graph, built from **Depends on:** ---------- */
+  function buildDag(headings){
+    var tasks = [], edges = [];
+    headings.forEach(function(h){
+      /* Task 11's toc capture is a guarded section: if it ever catches, the
+         attribute is absent and h.dataset.toc.match throws. Fall back to the
+         live heading text rather than losing this feature too. */
+      var m = (h.dataset.toc || h.textContent).match(/^Task\s+(\d+)\s*[:.—-]?\s*(.*)$/i);
+      if (!m) return;
+      var id = m[1], label = (m[2] || "").trim() || ("Task " + id);
+      var walk = /browser-walk-only/.test(h.textContent);
+      tasks.push({ id:id, label:label, walk:walk });
+      /* Anchored to the START of a paragraph, first declaration only, and
+         "none" suppresses. A loose search over every node in the section
+         harvests the string from prose and code fences alike — a step reading
+         'add `Depends on: Task 3` to the template' fabricated a real edge. */
+      var nodes = sectionNodes(h);
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].tagName !== "P") continue;
+        var dm = (nodes[i].textContent || "").trim().match(/^Depends on:\s*(.*)$/i);
+        if (!dm) continue;
+        if (!/^none\b/i.test(dm[1].trim())) {
+          var deps = dm[1].match(/\d+/g);
+          if (deps) deps.forEach(function(d){ if (d !== id) edges.push([d, id]); });
+        }
+        break;
+      }
+    });
+    if (tasks.length < 2) return null;
+    var known = {}; tasks.forEach(function(t){ known[t.id] = true; });
+    edges = edges.filter(function(e){ return known[e[0]] && known[e[1]]; });
+    var lines = ["flowchart LR"];
+    tasks.forEach(function(t){
+      lines.push('  T' + t.id + '["' + t.id + ' · ' + t.label.replace(/["]/g, "'") + '"]');
+    });
+    edges.forEach(function(e){ lines.push("  T" + e[0] + " --> T" + e[1]); });
+    var walks = tasks.filter(function(t){ return t.walk; }).map(function(t){ return "T" + t.id; });
+    if (walks.length){
+      lines.push("  classDef walk fill:#b45309,stroke:#b45309,color:#fff");
+      lines.push("  class " + walks.join(",") + " walk");
+    }
+    return { src: lines.join("\n"), edges: edges.length };
+  }
+  /* Scoped to the plan region — the siblings following the sentinel heading —
+     not to the first task-shaped h3 in the document. A spec that illustrates
+     the plan format with its own "### Task 1: ..." heading otherwise captured
+     the anchor, putting the graph a document above the real tasks and emitting
+     a duplicate T1 node with a conflicting label.
+
+     A helper, not a section: like sectionNodes above it stays unwrapped at
+     IIFE scope on purpose, since a guard() would scope the declaration to that
+     callback and its caller would die under the wrong label. */
+  function planTasks(){
+    var out = [], n = planH2 ? planH2.nextElementSibling : null;
+    while (n) { if (n.tagName === "H3") out.push(n); n = n.nextElementSibling; }
+    return out;
+  }
+  /* Declared here, at IIFE scope, and assigned inside the guard below — not
+     declared inside it. Task 15 adds a sibling "No tasks found" banner that
+     reads this binding; a var inside a guard callback is function-scoped to
+     that callback and invisible to anything after it. Containment still holds:
+     what can throw is the scan, and the scan is what the guard wraps. */
+  var tasks = [];
+  /* The same (h.dataset.toc || h.textContent) fallback the DAG builder uses,
+     and this is where it has to be: this filter is the real gate. test()
+     coerces a missing attribute to "undefined" without throwing, so a caught
+     guard for the heading toc text makes every heading test false, tasks
+     comes back empty, buildDag is never called, and the fallback inside it can
+     never fire. */
+  guard("dag: collect plan tasks", function(){
+    tasks = planTasks().filter(function(h){
+      return /^Task\s+\d+/i.test(h.dataset.toc || h.textContent);
+    });
+  });
+  guard("dag: insert graph", function(){
+    if (!tasks.length) return;
+    var dag = buildDag(tasks);
+    if (!dag) return;
+    var cap = document.createElement("div");
+    cap.className = "dag-caption";
+    cap.textContent = dag.edges
+      ? "task dependency graph — derived from declared Depends on:"
+      : "tasks are independent — no declared dependencies";
+    var box = document.createElement("div");
+    box.className = "mermaid-block";
+    box.dataset.src = dag.src;
+    tasks[0].parentNode.insertBefore(box, tasks[0]);
+    tasks[0].parentNode.insertBefore(cap, tasks[0]);
+  });
+
   /* ---------- walk-tag badges ---------- */
   guard("decorate: walk badges", function(){
     Array.prototype.forEach.call(content.querySelectorAll("h2 code, h3 code"), function(c){

@@ -660,6 +660,63 @@ chk "callout marker is read from the blockquote's own first child, not any desce
 chk "descendant-scoped querySelector(\"p\") is gone from the callout walk" \
   "$(grep -c 'bq.querySelector("p")' "$S/template.html")" "0"
 
+echo "== template JS: dependency graph =="
+chk "Depends on anchored to paragraph start" \
+  "$(grep -c '\^Depends on:' "$S/template.html")" "1"
+chk "none suppresses edges" "$(grep -c '\^none' "$S/template.html")" "1"
+# Anchored to indent 2, unlike the plan's original unanchored form and for the
+# reason the sectionNodes assertion above spells out: 'function planTasks'
+# still counts 1 when the declaration is wrapped in a guard(), which is the
+# regression the label exists to forbid. (Task 15 replaces planTasks with
+# planRegionHeadings and must retarget this line in its anchored form.)
+chk "graph scoped by plan region" \
+  "$(grep -c '^  function planTasks' "$S/template.html")" "1"
+chk "unknown edge targets dropped" \
+  "$(grep -c 'known\[e\[0\]\] && known\[e\[1\]\]' "$S/template.html")" "1"
+# Same anchor, same reason: buildDag is a helper the guarded sections call, so
+# a guard() wrapper scopes its declaration to that callback and the caller dies
+# with "buildDag is not defined", reported under someone else's label.
+chk "buildDag stays a declaration at IIFE scope, not inside a guard()" \
+  "$(grep -c '^  function buildDag' "$S/template.html")" "1"
+# The one binding that deliberately does NOT live inside its guard. Task 15
+# adds a sibling "No tasks found" banner statement that reads `tasks`; a
+# declaration hoisted into a guard callback is function-scoped to it and
+# invisible there. Indent 2 IS the assertion -- moving it inside the callback
+# reindents it to 4 and this fails, which is exactly the claim in the label.
+chk "tasks is declared at IIFE scope, not inside a guard callback" \
+  "$(grep -c '^  var tasks = \[\];' "$S/template.html")" "1"
+chk "the collect guard assigns that outer binding rather than declaring a fresh local" \
+  "$(grep -c '^    tasks = plan' "$S/template.html")" "1"
+# The anchored regex alone does not make the scan paragraph-scoped: without
+# this filter every node in the section is searched, and the string is
+# harvested out of code fences and list items alike -- a plan step reading
+# 'add `Depends on: Task 3` to the template' fabricated a real edge.
+chk "only P elements are scanned for a declaration" \
+  "$(grep -c 'if (nodes\[i\].tagName !== "P") continue;' "$S/template.html")" "1"
+# Containment for the two sections this task adds, by label, per the doctrine.
+for label in \
+  'guard("dag: collect plan tasks"' \
+  'guard("dag: insert graph"' \
+; do
+  chk "guarded: $label" "$(grep -cF "$label" "$S/template.html")" "1"
+done
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 15 ] && ok "at least 15 top-level sections guarded (floor raised by this task)" \
+  || no "at least 15 top-level sections guarded (floor raised by this task)" "$n"
+# planTasks() reads planH2, a var assigned by the structural-integrity block
+# above. The declaration hoists; the CALL does not. A collect guard placed
+# before that assignment sees undefined, returns [], and the graph disappears
+# with no error on the page and none in the console either. Presence greps
+# cannot see that; assert the source order the correctness depends on.
+planh2_ln=$(grep -n '^  var planH2 = ' "$S/template.html" | head -1 | cut -d: -f1)
+collect_ln=$(grep -n 'guard("dag: collect plan tasks"' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$planh2_ln" ] && [ -n "$collect_ln" ] && [ "$planh2_ln" -lt "$collect_ln" ]; then
+  ok "the plan-region scan runs after planH2 is assigned"
+else
+  no "the plan-region scan runs after planH2 is assigned" \
+     "planH2=[${planh2_ln:-missing}] collect=[${collect_ln:-missing}]"
+fi
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
