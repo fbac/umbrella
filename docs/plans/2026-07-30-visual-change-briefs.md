@@ -1470,7 +1470,7 @@ Append to `assets/change-brief/tests/render_test.sh`, before the final `echo`:
 echo "== template JS: callouts, badges, progress =="
 chk "PENDING alert mapped" "$(grep -c 'PENDING:"pending"' "$S/template.html")" "1"
 chk "pending label text" "$(grep -c 'Plan not yet written' "$S/template.html")" "1"
-chk "data-toc captured before mutation" "$(grep -c 'h.dataset.toc =' "$S/template.html")" "1"
+chk "data-toc capture present" "$(grep -c 'h.dataset.toc =' "$S/template.html")" "1"
 chk "mermaid fences become boxes" \
   "$(grep -c 'code.language-mermaid' "$S/template.html")" "1"
 ```
@@ -1498,8 +1498,12 @@ Append inside the IIFE, after the diagnostics banner loop:
                  TIP:"tip", CAUTION:"important", PENDING:"pending" };
   var LABELS = { PENDING:"Plan not yet written" };
   Array.prototype.forEach.call(content.querySelectorAll("blockquote"), function(bq){
-    var first = bq.querySelector("p");
-    if (!first) return;
+    /* firstElementChild, not querySelector("p"): the latter is descendant-
+       scoped, so "> > [!WARNING]" hands the OUTER blockquote the INNER one's
+       paragraph -- the outer converts and the inner's marker is sliced off.
+       GitHub's rule: the marker must be the blockquote's own first line. */
+    var first = bq.firstElementChild;
+    if (!first || first.tagName !== "P") return;
     var m = first.innerHTML.match(/^\s*\[!([A-Z]+)\]\s*(<br\s*\/?>)?\s*/);
     if (!m || !ALERTS[m[1]]) return;
     first.innerHTML = first.innerHTML.slice(m[0].length);
@@ -1548,7 +1552,8 @@ Append inside the IIFE, after the diagnostics banner loop:
     p.className = "progress";
     var bar = document.createElement("span"); bar.className = "bar";
     var fill = document.createElement("span");
-    fill.style.width = Math.round(done / boxes.length * 100) + "%";
+    /* floor: rounding renders 199/200 as a visually full bar. */
+    fill.style.width = Math.floor(done / boxes.length * 100) + "%";
     bar.appendChild(fill);
     p.appendChild(bar);
     p.appendChild(document.createTextNode(done + "/" + boxes.length));
@@ -1607,7 +1612,10 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
   function buildDag(headings){
     var tasks = [], edges = [];
     headings.forEach(function(h){
-      var m = h.dataset.toc.match(/^Task\s+(\d+)\s*[:.—-]?\s*(.*)$/i);
+      /* Task 11's toc capture is a guarded section: if it ever catches, the
+         attribute is absent and h.dataset.toc.match throws. Fall back to the
+         live heading text rather than losing this feature too. */
+      var m = (h.dataset.toc || h.textContent).match(/^Task\s+(\d+)\s*[:.—-]?\s*(.*)$/i);
       if (!m) return;
       var id = m[1], label = (m[2] || "").trim() || ("Task " + id);
       var walk = /browser-walk-only/.test(h.textContent);
@@ -1830,7 +1838,10 @@ Append inside the IIFE, after the mermaid renderer:
      hierarchy. Treating H1 as a peer group let a stray H1 between an H2 and
      its H3s steal those children, emptying the Plan group. */
   Array.prototype.forEach.call(content.querySelectorAll("h2, h3"), function(h){
-    var text = h.dataset.toc;
+    /* Same fallback as the DAG builder: Task 11's capture is guarded, so the
+       attribute is not guaranteed, and undefined here means "undefined" as an
+       index label. */
+    var text = h.dataset.toc || h.textContent;
     h.id = slug(text);
     var a = document.createElement("a");
     a.href = "#" + h.id;
