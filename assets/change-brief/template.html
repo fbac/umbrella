@@ -445,6 +445,96 @@ __BRIEF_B64__
   decodeB64(document.body.dataset.diag).split("\n").forEach(function(w){
     if (w.trim()) banner("Source problem", w.trim());
   });
+
+  /* ---------- DOM decoration ----------
+     One guard() per section, per the containment pattern above: a throw while
+     unwrapping callouts must not cost the reader their badges, their progress
+     bars, or anything Tasks 12-14 append after this point. */
+
+  /* ---------- mermaid fences -> placeholder boxes ---------- */
+  /* Extraction only. Task 13 renders data-src into the box; keeping the two
+     apart means a mermaid failure cannot take the fence's text with it. */
+  guard("decorate: mermaid fences", function(){
+    Array.prototype.forEach.call(content.querySelectorAll("pre > code.language-mermaid"), function(code){
+      var box = document.createElement("div");
+      box.className = "mermaid-block";
+      box.dataset.src = code.textContent;
+      code.parentNode.replaceWith(box);
+    });
+  });
+
+  /* ---------- GitHub-style callouts (incl. PENDING) ---------- */
+  guard("decorate: callouts", function(){
+    var ALERTS = { NOTE:"note", WARNING:"warning", IMPORTANT:"important",
+                   TIP:"tip", CAUTION:"important", PENDING:"pending" };
+    var LABELS = { PENDING:"Plan not yet written" };
+    Array.prototype.forEach.call(content.querySelectorAll("blockquote"), function(bq){
+      var first = bq.querySelector("p");
+      if (!first) return;
+      var m = first.innerHTML.match(/^\s*\[!([A-Z]+)\]\s*(<br\s*\/?>)?\s*/);
+      if (!m || !ALERTS[m[1]]) return;
+      first.innerHTML = first.innerHTML.slice(m[0].length);
+      var div = document.createElement("div");
+      div.className = "callout " + ALERTS[m[1]];
+      var label = document.createElement("span");
+      label.className = "callout-label";
+      label.textContent = LABELS[m[1]] || m[1].toLowerCase();
+      div.appendChild(label);
+      while (bq.firstChild) div.appendChild(bq.firstChild);
+      bq.replaceWith(div);
+    });
+  });
+
+  /* ---------- capture clean heading text BEFORE badges/progress mutate it ---------- */
+  /* The index (Task 14) reads data-toc. Captured after the two sections below,
+     it would read "Task 1: Render scriptstatic-verifiable" -- the badge and the
+     progress counter concatenated into the entry. */
+  guard("decorate: heading toc text", function(){
+    Array.prototype.forEach.call(content.querySelectorAll("h1, h2, h3"), function(h){
+      h.dataset.toc = h.textContent.replace(/\s*[—–-]\s*(static-verifiable|browser-walk-only)\s*$/, "").trim();
+    });
+  });
+
+  function sectionNodes(h){
+    var out = [], n = h.nextElementSibling;
+    while (n && !/^H[1-3]$/.test(n.tagName)) { out.push(n); n = n.nextElementSibling; }
+    return out;
+  }
+
+  /* ---------- walk-tag badges ---------- */
+  guard("decorate: walk badges", function(){
+    Array.prototype.forEach.call(content.querySelectorAll("h2 code, h3 code"), function(c){
+      var t = c.textContent.trim();
+      if (t !== "browser-walk-only" && t !== "static-verifiable") return;
+      var b = document.createElement("span");
+      b.className = "badge " + (t === "browser-walk-only" ? "walk" : "static");
+      b.textContent = t;
+      var prev = c.previousSibling;
+      if (prev && prev.nodeType === 3) prev.textContent = prev.textContent.replace(/\s*[—–-]\s*$/, "");
+      c.replaceWith(b);
+    });
+  });
+
+  /* ---------- per-task checkbox progress ---------- */
+  guard("decorate: task progress", function(){
+    Array.prototype.forEach.call(content.querySelectorAll("h3"), function(h){
+      var boxes = [];
+      sectionNodes(h).forEach(function(n){
+        boxes = boxes.concat(Array.prototype.slice.call(n.querySelectorAll('input[type=checkbox]')));
+      });
+      if (!boxes.length) return;
+      var done = boxes.filter(function(b){ return b.checked; }).length;
+      var p = document.createElement("span");
+      p.className = "progress";
+      var bar = document.createElement("span"); bar.className = "bar";
+      var fill = document.createElement("span");
+      fill.style.width = Math.round(done / boxes.length * 100) + "%";
+      bar.appendChild(fill);
+      p.appendChild(bar);
+      p.appendChild(document.createTextNode(done + "/" + boxes.length));
+      h.appendChild(p);
+    });
+  });
 })();
 </script>
 </body>

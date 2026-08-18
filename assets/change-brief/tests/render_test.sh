@@ -599,6 +599,42 @@ chk "render.sh warnings surface as banners" \
 chk "no source-side heading count remains" \
   "$(grep -c 'data-headings' "$S/template.html")" "0"
 
+echo "== template JS: callouts, badges, progress =="
+chk "PENDING alert mapped" "$(grep -c 'PENDING:"pending"' "$S/template.html")" "1"
+chk "pending label text" "$(grep -c 'Plan not yet written' "$S/template.html")" "1"
+chk "data-toc captured before mutation" "$(grep -c 'h.dataset.toc =' "$S/template.html")" "1"
+chk "mermaid fences become boxes" \
+  "$(grep -c 'code.language-mermaid' "$S/template.html")" "1"
+# "before mutation" is the whole point of the capture -- badges and progress
+# rewrite heading contents, so a capture that runs after them yields index
+# entries reading "Task 1: Render scriptstatic-verifiable". Presence alone
+# cannot see that; assert the source order the correctness depends on.
+toc_ln=$(grep -n 'h.dataset.toc =' "$S/template.html" | head -1 | cut -d: -f1)
+badge_ln=$(grep -n 'guard("decorate: walk badges"' "$S/template.html" | head -1 | cut -d: -f1)
+prog_ln=$(grep -n 'guard("decorate: task progress"' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$toc_ln" ] && [ -n "$badge_ln" ] && [ -n "$prog_ln" ] \
+   && [ "$toc_ln" -lt "$badge_ln" ] && [ "$toc_ln" -lt "$prog_ln" ]; then
+  ok "data-toc capture precedes both badge and progress mutation in source order"
+else
+  no "data-toc capture precedes both badge and progress mutation in source order" \
+     "toc=[${toc_ln:-missing}] badges=[${badge_ln:-missing}] progress=[${prog_ln:-missing}]"
+fi
+# Containment for the five sections this task adds, asserted by label like the
+# floor+labels block above. The >=8 floor alone cannot catch one of these being
+# unwrapped later: 12 of 13 still clears 8.
+for label in \
+  'guard("decorate: mermaid fences"' \
+  'guard("decorate: callouts"' \
+  'guard("decorate: heading toc text"' \
+  'guard("decorate: walk badges"' \
+  'guard("decorate: task progress"' \
+; do
+  chk "guarded: $label" "$(grep -cF "$label" "$S/template.html")" "1"
+done
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 13 ] && ok "at least 13 top-level sections guarded (floor raised by this task)" \
+  || no "at least 13 top-level sections guarded (floor raised by this task)" "$n"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
