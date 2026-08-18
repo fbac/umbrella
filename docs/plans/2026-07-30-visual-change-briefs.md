@@ -2083,12 +2083,52 @@ chk "flowchart labels are SVG text, never innerHTML" \
   "$(grep -c 'htmlLabels:false' "$S/template.html")" "1"
 chk "failing pass never clobbers a good render" \
   "$(grep -c 'box.querySelector(".d-light svg")' "$S/template.html")" "1"
+# Containment for the one section this task adds, by label and floor, per the
+# doctrine at the top of the IIFE. The renderer's kick-off is a top-level
+# statement like every other section, so it is guarded like every other section.
+chk "guarded: mermaid: start dual-theme render" \
+  "$(grep -cF 'guard("mermaid: start dual-theme render"' "$S/template.html")" "1"
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 16 ] && ok "at least 16 top-level sections guarded (floor raised by this task)" \
+  || no "at least 16 top-level sections guarded (floor raised by this task)" "$n"
+# guard() is synchronous-only. It sees a throw out of the FIRST renderPass call
+# and nothing after the first tick, so on its own it leaves two holes: a
+# rejection from the light pass's reduce chain, and the SECOND renderPass call,
+# which runs inside a .then callback where guard() has already returned. Both
+# surface as unhandled rejections -- no label, nothing the console can pin on
+# this file. The terminal .catch is what closes them, so pin it byte-exact:
+# a presence grep for the label alone would also match it sitting in a comment.
+chk "the render chain has a terminal catch, not just a guard" \
+  "$(grep -cF '.catch(function(e){ warn("mermaid: dual-theme render chain", e); });' "$S/template.html")" "1"
+# ...and it has to be chained AFTER the dark pass, or it covers the light pass
+# only and the second pass is back to an unhandled rejection. Presence greps
+# cannot see chain order; line numbers can.
+darkpass_ln=$(grep -n 'return renderPass("dark", "d-dark");' "$S/template.html" | head -1 | cut -d: -f1)
+mmcatch_ln=$(grep -n 'warn("mermaid: dual-theme render chain"' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$darkpass_ln" ] && [ -n "$mmcatch_ln" ] && [ "$darkpass_ln" -lt "$mmcatch_ln" ]; then
+  ok "the terminal catch is chained after the dark pass, so it covers both passes"
+else
+  no "the terminal catch is chained after the dark pass, so it covers both passes" \
+     "dark=[${darkpass_ln:-missing}] catch=[${mmcatch_ln:-missing}]"
+fi
+# Same mirror as Task 12's, for the same reason: this task's snippet was edited
+# in the plan (the bare kick-off call gained its guard), so plan and template
+# can now drift, and nothing else in this suite can see it.
+#
+# NOTE FOR TASK 14: the stop marker below is the IIFE's closing "})();" only
+# because this renderer is currently the last section in the file. Task 14
+# appends after it and must retarget the stop marker to Task 14's own header
+# comment ('  /* ---------- build TOC ---------- */'). It will fail loudly, not
+# silently, if that is forgotten.
+MMD_HEAD='  /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */'
+mirror_chk "Task 13's plan snippet is byte-identical to the shipped template" \
+  "$MMD_HEAD" "$S/template.html" "$MMD_HEAD" '})();'
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: four FAILs, exit 1.
+Expected: nine FAILs, exit 1. (Four of the five API-contract assertions fail; "no v8/v9 callback form" expects a count of zero and so passes before the renderer exists at all.)
 
 - [ ] **Step 3: Add the dual-pass renderer**
 
@@ -2138,13 +2178,28 @@ Append inside the IIFE, after the per-task progress section:
       });
     }, Promise.resolve());
   }
-  renderPass("default", "d-light").then(function(){ return renderPass("dark", "d-dark"); });
+  /* Two containment mechanisms, because this one statement has two failure
+     modes and guard() can only see the first. guard() catches a SYNCHRONOUS
+     throw out of the first renderPass call — a mermaid.initialize that rejects
+     its config, a querySelectorAll that throws — which would otherwise escape
+     the IIFE. The trailing .catch covers everything that happens after the
+     first tick: a rejection out of the light pass's reduce chain (including a
+     per-box .catch handler that itself throws), and any throw or rejection
+     from the SECOND renderPass call, which runs inside a .then callback where
+     guard() has long since returned. Without it a dark-pass failure is an
+     unhandled rejection: no label, no warn(), nothing attributable to this
+     file — the silent failure the containment doctrine above exists to refuse. */
+  guard("mermaid: start dual-theme render", function(){
+    renderPass("default", "d-light")
+      .then(function(){ return renderPass("dark", "d-dark"); })
+      .catch(function(e){ warn("mermaid: dual-theme render chain", e); });
+  });
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: five PASSes, exit 0. Visual confirmation is **walk cases 2, 4, 5 and 10** — the static test proves the API contract, not that diagrams are legible.
+Expected: all ten new assertions PASS and the suite reports 205 passed, 0 failed. Visual confirmation is **walk cases 2, 4, 5 and 10** — the static test proves the API contract, not that diagrams are legible.
 
 - [ ] **Step 5: Commit**
 

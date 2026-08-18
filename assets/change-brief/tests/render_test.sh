@@ -886,6 +886,61 @@ DAG_HEAD='  /* ---------- task dependency graph, built from **Depends on:** ----
 mirror_chk "Task 12's plan snippet is byte-identical to the shipped template" \
   "$DAG_HEAD" "$S/template.html" "$DAG_HEAD" '  /* ---------- walk-tag badges ---------- */'
 
+echo "== template JS: mermaid contract =="
+chk "async parse-then-render chain" \
+  "$(grep -c 'return mermaid.parse(src)' "$S/template.html")" "1"
+chk "no v8/v9 callback form" \
+  "$(grep -c 'mermaid.render(id, src, function' "$S/template.html")" "0"
+chk "strict security level" \
+  "$(grep -c 'securityLevel:"strict"' "$S/template.html")" "1"
+# strict is not enough on its own: at strict, mermaid still builds flowchart
+# labels with innerHTML, and DOMPurify keeps <img> -- so a heading carrying an
+# image tag beacons the reader's IP and open-time from a file that is supposed
+# to be inert. htmlLabels:false is what closes it.
+chk "flowchart labels are SVG text, never innerHTML" \
+  "$(grep -c 'htmlLabels:false' "$S/template.html")" "1"
+chk "failing pass never clobbers a good render" \
+  "$(grep -c 'box.querySelector(".d-light svg")' "$S/template.html")" "1"
+# Containment for the one section this task adds, by label and floor, per the
+# doctrine at the top of the IIFE. The renderer's kick-off is a top-level
+# statement like every other section, so it is guarded like every other section.
+chk "guarded: mermaid: start dual-theme render" \
+  "$(grep -cF 'guard("mermaid: start dual-theme render"' "$S/template.html")" "1"
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 16 ] && ok "at least 16 top-level sections guarded (floor raised by this task)" \
+  || no "at least 16 top-level sections guarded (floor raised by this task)" "$n"
+# guard() is synchronous-only. It sees a throw out of the FIRST renderPass call
+# and nothing after the first tick, so on its own it leaves two holes: a
+# rejection from the light pass's reduce chain, and the SECOND renderPass call,
+# which runs inside a .then callback where guard() has already returned. Both
+# surface as unhandled rejections -- no label, nothing the console can pin on
+# this file. The terminal .catch is what closes them, so pin it byte-exact:
+# a presence grep for the label alone would also match it sitting in a comment.
+chk "the render chain has a terminal catch, not just a guard" \
+  "$(grep -cF '.catch(function(e){ warn("mermaid: dual-theme render chain", e); });' "$S/template.html")" "1"
+# ...and it has to be chained AFTER the dark pass, or it covers the light pass
+# only and the second pass is back to an unhandled rejection. Presence greps
+# cannot see chain order; line numbers can.
+darkpass_ln=$(grep -n 'return renderPass("dark", "d-dark");' "$S/template.html" | head -1 | cut -d: -f1)
+mmcatch_ln=$(grep -n 'warn("mermaid: dual-theme render chain"' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$darkpass_ln" ] && [ -n "$mmcatch_ln" ] && [ "$darkpass_ln" -lt "$mmcatch_ln" ]; then
+  ok "the terminal catch is chained after the dark pass, so it covers both passes"
+else
+  no "the terminal catch is chained after the dark pass, so it covers both passes" \
+     "dark=[${darkpass_ln:-missing}] catch=[${mmcatch_ln:-missing}]"
+fi
+# Same mirror as Task 12's, for the same reason: this task's snippet was edited
+# in the plan (the bare kick-off call gained its guard), so plan and template
+# can now drift, and nothing else in this suite can see it.
+#
+# NOTE FOR TASK 14: the stop marker below is the IIFE's closing "})();" only
+# because this renderer is currently the last section in the file. Task 14
+# appends after it and must retarget the stop marker to Task 14's own header
+# comment ('  /* ---------- build TOC ---------- */'). It will fail loudly, not
+# silently, if that is forgotten.
+MMD_HEAD='  /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */'
+mirror_chk "Task 13's plan snippet is byte-identical to the shipped template" \
+  "$MMD_HEAD" "$S/template.html" "$MMD_HEAD" '})();'
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

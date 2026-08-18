@@ -745,6 +745,66 @@ __BRIEF_B64__
       h.appendChild(p);
     });
   });
+
+  /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */
+  var seq = 0;
+  function renderPass(themeName, cls){
+    if (typeof mermaid === "undefined") return Promise.resolve();
+    mermaid.initialize({
+      startOnLoad:false, securityLevel:"strict",
+      /* Labels as SVG text, not innerHTML. See this task's preamble: at strict,
+         v10 still inserts flowchart labels as HTML and DOMPurify keeps <img>,
+         so an image tag in a task heading fires a real network request out of a
+         file whose whole premise is inertness. */
+      flowchart:{ htmlLabels:false },
+      theme: themeName, fontFamily:"inherit"
+    });
+    var boxes = Array.prototype.slice.call(document.querySelectorAll("[data-src]"));
+    return boxes.reduce(function(chain, box){
+      return chain.then(function(){
+        var src = box.dataset.src, id = "mmd-" + (seq++);
+        return Promise.resolve()
+          .then(function(){ return mermaid.parse(src); })
+          .then(function(){ return mermaid.render(id, src); })
+          .then(function(res){
+            var slot = document.createElement("div");
+            slot.className = cls;
+            slot.innerHTML = res.svg;
+            box.appendChild(slot);
+          })
+          .catch(function(err){
+            if (box.classList.contains("mermaid-error")) return;
+            /* Never destroy a pass that already succeeded. The two passes
+               mutate one container; a dark-pass failure would otherwise
+               replace three perfectly good light renders with error boxes —
+               and print, which forces .d-light, would show the error. */
+            if (box.querySelector(".d-light svg")) return;
+            box.className = "mermaid-error";
+            box.removeAttribute("data-src");
+            box.innerHTML =
+              '<div class="err-head">Diagram failed to render</div>' +
+              '<div class="err-msg">' + esc(err && err.message ? err.message : String(err)) + '</div>' +
+              '<pre><code>' + esc(src) + '</code></pre>';
+          });
+      });
+    }, Promise.resolve());
+  }
+  /* Two containment mechanisms, because this one statement has two failure
+     modes and guard() can only see the first. guard() catches a SYNCHRONOUS
+     throw out of the first renderPass call — a mermaid.initialize that rejects
+     its config, a querySelectorAll that throws — which would otherwise escape
+     the IIFE. The trailing .catch covers everything that happens after the
+     first tick: a rejection out of the light pass's reduce chain (including a
+     per-box .catch handler that itself throws), and any throw or rejection
+     from the SECOND renderPass call, which runs inside a .then callback where
+     guard() has long since returned. Without it a dark-pass failure is an
+     unhandled rejection: no label, no warn(), nothing attributable to this
+     file — the silent failure the containment doctrine above exists to refuse. */
+  guard("mermaid: start dual-theme render", function(){
+    renderPass("default", "d-light")
+      .then(function(){ return renderPass("dark", "d-dark"); })
+      .catch(function(e){ warn("mermaid: dual-theme render chain", e); });
+  });
 })();
 </script>
 </body>
