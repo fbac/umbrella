@@ -1661,7 +1661,15 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
     while (n) { if (n.tagName === "H3") out.push(n); n = n.nextElementSibling; }
     return out;
   }
-  var tasks = planTasks().filter(function(h){ return /^Task\s+\d+/i.test(h.dataset.toc); });
+  /* The same (h.dataset.toc || h.textContent) fallback the DAG builder uses,
+     and this is where it has to be: this filter is the real gate. test()
+     coerces a missing attribute to "undefined" without throwing, so a caught
+     guard("decorate: heading toc text") makes every heading test false, tasks
+     comes back empty, buildDag is never called, and the fallback inside it can
+     never fire. */
+  var tasks = planTasks().filter(function(h){
+    return /^Task\s+\d+/i.test(h.dataset.toc || h.textContent);
+  });
   if (tasks.length) {
     var dag = buildDag(tasks);
     if (dag) {
@@ -2044,7 +2052,15 @@ redeclaration bug — with:
       return !!(planH2.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING);
     });
   }
-  var tasks = planRegionHeadings().filter(function(h){ return /^Task\s+\d+/i.test(h.dataset.toc); });
+  /* Same fallback, and here it matters more than anywhere else: this filter
+     feeds a banner. Without it, a contained Task 11 failure empties tasks and
+     the page tells the reader the source document has no task headings while
+     those headings sit in view directly below the banner. A guarded failure
+     must degrade quietly; it must never emit a confident false claim about
+     the source. */
+  var tasks = planRegionHeadings().filter(function(h){
+    return /^Task\s+\d+/i.test(h.dataset.toc || h.textContent);
+  });
   if (planH2 && document.body.dataset.planState === "attached" && !tasks.length) {
     banner("No tasks found",
       "This brief was rendered with a plan attached, but no task headings were " +
