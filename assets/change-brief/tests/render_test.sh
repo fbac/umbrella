@@ -602,9 +602,17 @@ chk "no source-side heading count remains" \
 echo "== template JS: callouts, badges, progress =="
 chk "PENDING alert mapped" "$(grep -c 'PENDING:"pending"' "$S/template.html")" "1"
 chk "pending label text" "$(grep -c 'Plan not yet written' "$S/template.html")" "1"
-chk "data-toc captured before mutation" "$(grep -c 'h.dataset.toc =' "$S/template.html")" "1"
+chk "data-toc capture present" "$(grep -c 'h.dataset.toc =' "$S/template.html")" "1"
 chk "mermaid fences become boxes" \
   "$(grep -c 'code.language-mermaid' "$S/template.html")" "1"
+# The line above greps the INPUT selector. Task 13 consumes the output --
+# ".mermaid-block" and its data-src -- so renaming the class or moving off
+# dataset.src would leave this suite green while Task 13 got an empty
+# NodeList. Anchor on the whole assignment: Task 12 builds a mermaid-block
+# with a data-src of its own for the DAG, so a count on either bare string
+# would break the moment that lands.
+chk "mermaid box carries the fence text" \
+  "$(grep -c 'box.dataset.src = code.textContent' "$S/template.html")" "1"
 # "before mutation" is the whole point of the capture -- badges and progress
 # rewrite heading contents, so a capture that runs after them yields index
 # entries reading "Task 1: Render scriptstatic-verifiable". Presence alone
@@ -634,6 +642,18 @@ done
 n=$(grep -c 'guard("' "$S/template.html")
 [ "$n" -ge 13 ] && ok "at least 13 top-level sections guarded (floor raised by this task)" \
   || no "at least 13 top-level sections guarded (floor raised by this task)" "$n"
+# The one deliberate exception to that doctrine. sectionNodes is a helper the
+# guarded sections and Task 12 call; wrapping it in guard() would scope the
+# declaration to the callback and its callers would fail with a ReferenceError
+# reported under someone else's label.
+chk "sectionNodes stays a declaration at IIFE scope, not inside a guard()" \
+  "$(grep -c 'function sectionNodes' "$S/template.html")" "1"
+chk "the fill bar floors its percentage rather than rounding 199/200 to 100%" \
+  "$(grep -c 'Math.floor(done / boxes.length \* 100)' "$S/template.html")" "1"
+chk "callout marker is read from the blockquote's own first child, not any descendant p" \
+  "$(grep -c 'var first = bq.firstElementChild;' "$S/template.html")" "1"
+chk "descendant-scoped querySelector(\"p\") is gone from the callout walk" \
+  "$(grep -c 'bq.querySelector("p")' "$S/template.html")" "0"
 
 echo
 echo "shell: $pass passed, $fail failed"
