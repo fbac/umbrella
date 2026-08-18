@@ -1925,6 +1925,10 @@ git commit -m "feat(change-brief): derive task graph from Depends on, scoped to 
 
 Mermaid v10 is async-only: the v8/v9 callback form produces no output and no exception, leaving every diagram blank. Each fence renders twice up front so theme switching is a pure CSS toggle and print can select the light variant synchronously.
 
+`flowchart: { htmlLabels: false }` is not cosmetic and is not optional. Mermaid v10 renders flowchart labels by assigning them as **innerHTML** inside a `<foreignObject>` — verified against the vendored 10.9.1 bundle, where a `<b>x</b>` label at `securityLevel:"strict"` comes back as a real `<b>` element. DOMPurify strips event handlers but keeps `img`, so `### Task 4: <img src=https://evil.example/x.png>` becomes a **live network request** from a file whose entire premise is inertness in a webmail preview pane or a DLP sandbox. This defeats Task 9's image neutralisation through a door Task 9 never covered: Task 9 escapes payload HTML at parse time so the DOM holds the literal string, and Tasks 11 and 12 are the first paths that hand that literal back to a renderer which un-escapes it. Turning HTML labels off puts labels back into SVG `<text>` with no element construction at all — verified — and doing it in `initialize` covers Task 11's fence extraction and Task 12's derived graph in one place.
+
+One more consequence, recorded because the renderer below is a sequential `boxes.reduce(chain.then(...))`: a box whose render promise never settles stalls every later diagram and the whole second pass. Under jsdom an `<img>`-bearing label reproduces exactly that with HTML labels on, and does not with them off. If a future change re-enables HTML labels, or adds any renderer path that can hang, the chain must be made non-stallable (race each box against a timeout) before that change lands.
+
 **Files:**
 - Modify: `assets/change-brief/template.html`
 
@@ -1940,6 +1944,12 @@ chk "no v8/v9 callback form" \
   "$(grep -c 'mermaid.render(id, src, function' "$S/template.html")" "0"
 chk "strict security level" \
   "$(grep -c 'securityLevel:"strict"' "$S/template.html")" "1"
+# strict is not enough on its own: at strict, mermaid still builds flowchart
+# labels with innerHTML, and DOMPurify keeps <img> -- so a heading carrying an
+# image tag beacons the reader's IP and open-time from a file that is supposed
+# to be inert. htmlLabels:false is what closes it.
+chk "flowchart labels are SVG text, never innerHTML" \
+  "$(grep -c 'htmlLabels:false' "$S/template.html")" "1"
 chk "failing pass never clobbers a good render" \
   "$(grep -c 'box.querySelector(".d-light svg")' "$S/template.html")" "1"
 ```
@@ -1947,7 +1957,7 @@ chk "failing pass never clobbers a good render" \
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: three FAILs, exit 1.
+Expected: four FAILs, exit 1.
 
 - [ ] **Step 3: Add the dual-pass renderer**
 
@@ -1960,6 +1970,11 @@ Append inside the IIFE, after the per-task progress section:
     if (typeof mermaid === "undefined") return Promise.resolve();
     mermaid.initialize({
       startOnLoad:false, securityLevel:"strict",
+      /* Labels as SVG text, not innerHTML. See this task's preamble: at strict,
+         v10 still inserts flowchart labels as HTML and DOMPurify keeps <img>,
+         so an image tag in a task heading fires a real network request out of a
+         file whose whole premise is inertness. */
+      flowchart:{ htmlLabels:false },
       theme: themeName, fontFamily:"inherit"
     });
     var boxes = Array.prototype.slice.call(document.querySelectorAll("[data-src]"));
@@ -1998,7 +2013,7 @@ Append inside the IIFE, after the per-task progress section:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: four PASSes, exit 0. Visual confirmation is **walk cases 2, 4 and 5** — the static test proves the API contract, not that diagrams are legible.
+Expected: five PASSes, exit 0. Visual confirmation is **walk cases 2, 4 and 5** — the static test proves the API contract, not that diagrams are legible.
 
 - [ ] **Step 5: Commit**
 
@@ -2184,12 +2199,23 @@ chk "plan tasks scoped by document position" \
 # F6: the pending predicate must be specific.
 chk "pending check asserts .callout.pending" \
   "$(grep -c 'querySelector(".callout.pending")' "$S/template.html")" "1"
+
+# The new banner is a top-level section and gets a guard like every other one;
+# a bare statement here throws uncaught and kills everything after it.
+chk "guarded: guard(\"dag: no tasks banner\"" \
+  "$(grep -cF 'guard("dag: no tasks banner"' "$S/template.html")" "1"
+# An empty `tasks` has two causes -- no task headings in the source, or a
+# caught collect guard -- and only the first is a fact about the document.
+# Without this gate the banner makes a confident false claim about the
+# reader's source while the headings sit in view below it.
+chk "the no-tasks banner is gated on the collect guard having actually run" \
+  "$(grep -cF 'planH2 && collected &&' "$S/template.html")" "1"
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: **five** FAILs. Two of the seven new assertions already pass against the unfixed code — `front matter body retained` (the old `has_front_matter` leaves the block in place, so the task heading survives anyway) and `exactly one sentinel in the payload` (the spec's stray U+2060 heading is not named "Plan", so the count is 1 either way). `front matter body retained` begins exercising real behaviour after Step 3a, and `exactly one sentinel in the payload` after Step 3b, exit 1.
+Expected: **seven** FAILs. Two of the nine new assertions already pass against the unfixed code — `front matter body retained` (the old `has_front_matter` leaves the block in place, so the task heading survives anyway) and `exactly one sentinel in the payload` (the spec's stray U+2060 heading is not named "Plan", so the count is 1 either way). `front matter body retained` begins exercising real behaviour after Step 3a, and `exactly one sentinel in the payload` after Step 3b, exit 1.
 
 - [ ] **Step 3a: Fix findings 1 and 2 — front-matter detection**
 
@@ -2256,35 +2282,77 @@ In `assets/change-brief/template.html`, replace the diagnostics loop with:
 
 - [ ] **Step 3d: Fix finding 5 — scope tasks by document position**
 
-In `assets/change-brief/template.html`, replace **both** the `planTasks` function and the
-`var tasks = planTasks()...` line that follows it — leaving the old `var tasks` in place is a
-redeclaration bug — with:
+Three edits in `assets/change-brief/template.html`, in source order. They are given
+separately on purpose: the code they replace is **not contiguous** — Task 12's
+`var tasks = [];` declaration sits between the helper and the guard, and it must stay
+there. Applying this as one block deletes that declaration, and `tasks` and `collected`
+then both die with a `ReferenceError` in every section that reads them (reproduced).
+
+**(i)** Replace the `planTasks` function together with the comment block directly above it —
+the one beginning "Scoped to the plan region" — with:
 
 ```js
   /* compareDocumentPosition, not the sibling chain: tasks nested inside a list,
      a blockquote, or a <details> are not siblings of the sentinel and yielded
-     no graph at all, silently. */
+     no graph at all, silently.
+
+     Note what this costs. planTasks() guaranteed every heading it returned was
+     a direct child of #content, and that invariant is gone: an h3 the markdown
+     renderer nested inside an <li> now qualifies. Task 12 anchors the diagram
+     and its caption on planH2 precisely because of this — anchoring on the
+     first task's parent would bury both inside that list item. That anchoring
+     must stay.
+
+     A helper, not a section: like sectionNodes above it stays unwrapped at
+     IIFE scope on purpose, since a guard() would scope the declaration to that
+     callback and its caller would die under the wrong label. */
   function planRegionHeadings(){
     if (!planH2) return [];
     return Array.prototype.filter.call(content.querySelectorAll("h3"), function(h){
       return !!(planH2.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING);
     });
   }
-  /* Same fallback, and here it matters more than anywhere else: this filter
-     feeds a banner. Without it, a contained Task 11 failure empties tasks and
-     the page tells the reader the source document has no task headings while
-     those headings sit in view directly below the banner. A guarded failure
-     must degrade quietly; it must never emit a confident false claim about
-     the source. */
-  var tasks = planRegionHeadings().filter(function(h){
-    return /^Task\s+\d+/i.test(h.dataset.toc || h.textContent);
-  });
-  if (planH2 && document.body.dataset.planState === "attached" && !tasks.length) {
-    banner("No tasks found",
-      "This brief was rendered with a plan attached, but no task headings were " +
-      "found in the Plan section. The dependency graph is missing.");
-  }
 ```
+
+**(ii)** Leave `var tasks = [];` and the comment above it exactly where they are. Add one
+line immediately after `var tasks = [];`, at the same IIFE scope and for the same reason —
+a `var` inside a guard callback is invisible to the sibling statements that read it:
+
+```js
+  var collected = false;
+```
+
+**(iii)** Replace the body of the existing `guard("dag: collect plan tasks", …)` callback,
+and append a second guarded section directly after it, before
+`guard("dag: build and insert graph", …)`:
+
+```js
+  guard("dag: collect plan tasks", function(){
+    tasks = planRegionHeadings().filter(function(h){
+      return /^Task\s+\d+/i.test(h.dataset.toc || h.textContent);
+    });
+    collected = true;
+  });
+  /* Gated on `collected`, not on tasks.length alone. An empty `tasks` has two
+     causes — the document genuinely has no task headings, or the guard above
+     caught — and only the first is a fact about the source. Firing on the
+     second prints a confident false claim about the reader's document with the
+     task headings visible directly below the banner, which is exactly what the
+     comment on that filter forbids. Guarded per the Tasks 9-14 containment
+     doctrine: a bare top-level statement here throws uncaught and kills every
+     section after it. */
+  guard("dag: no tasks banner", function(){
+    if (planH2 && collected && document.body.dataset.planState === "attached" && !tasks.length) {
+      banner("No tasks found",
+        "This brief was rendered with a plan attached, but no task headings were " +
+        "found in the Plan section. The dependency graph is missing.");
+    }
+  });
+```
+
+The comment that already sits above the collect guard — the one explaining the
+`(h.dataset.toc || h.textContent)` fallback — stays as it is; it still describes the filter
+inside the new body, and it is the reason the banner must not fire on a caught guard.
 
 - [ ] **Step 3e: Fix finding 6 — specific pending predicate**
 
@@ -2301,22 +2369,50 @@ In `assets/change-brief/template.html`, replace the pending-notice check with:
 
 Move this check to **after** the callout conversion section, since `.callout.pending` does not exist until blockquotes are converted.
 
-- [ ] **Step 3f: Retarget the two assertions this rename invalidates**
+- [ ] **Step 3f: Retarget the assertions this rename invalidates**
 
-The suite is cumulative and re-run in full, so Step 3d's rename breaks two earlier
+The suite is cumulative and re-run in full, so Step 3d's rename breaks earlier
 assertions. Update them in place rather than letting them fail.
 
-In `assets/change-brief/tests/render_test.sh`, under `== template JS: dependency graph ==`, replace:
+In `assets/change-brief/tests/render_test.sh`, under `== template JS: dependency graph ==`,
+replace:
 
 ```bash
-chk "graph scoped by plan region" "$(grep -c 'function planTasks' "$S/template.html")" "1"
+chk "graph scoped by plan region" \
+  "$(grep -c '^  function planTasks' "$S/template.html")" "1"
 ```
 
 with:
 
 ```bash
 chk "graph scoped by plan region" \
-  "$(grep -c 'function planRegionHeadings' "$S/template.html")" "1"
+  "$(grep -c '^  function planRegionHeadings' "$S/template.html")" "1"
+```
+
+Keep the `^  ` anchor through the rename. It is the whole assertion: an unanchored
+`grep -c 'function planRegionHeadings'` still counts 1 when the declaration is wrapped in a
+`guard()` — the exact regression the label exists to forbid, and the one the `sectionNodes`
+assertion above was already fixed for once.
+
+Three assertions in that same block are expected to **survive Step 3d untouched** —
+`^  var tasks = \[\];`, `^    tasks = plan`, and the `planH2`-before-collect source-order
+check. They pass only because Step 3d keeps the hoisted declaration and assigns into it. If
+any of the three fails, Step 3d was applied wrongly; retargeting them is the wrong fix.
+
+Step 3d adds a sixteenth guarded section, so raise the containment floor. Replace:
+
+```bash
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 15 ] && ok "at least 15 top-level sections guarded (floor raised by this task)" \
+  || no "at least 15 top-level sections guarded (floor raised by this task)" "$n"
+```
+
+with:
+
+```bash
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 16 ] && ok "at least 16 top-level sections guarded (floor raised by this task)" \
+  || no "at least 16 top-level sections guarded (floor raised by this task)" "$n"
 ```
 
 and under `== template JS: index ==`, replace:
@@ -3444,7 +3540,7 @@ Nine cases, carried forward from the spec's `browser-walk-only` requirements. No
 
 **Placeholder scan.** No "TBD", no "implement later", no "add error handling". Every code step carries the complete text to write.
 
-**Type consistency.** `planH2`, `PLAN_MARK`, `sectionNodes`, `buildDag`, `planRegionHeadings`, `safeHref`, `decodeEntities`, `banner`, `decodeB64`, and `esc` are defined once and referenced consistently. Task 15 renames `planTasks` to `planRegionHeadings` and Step 3f retargets the two earlier assertions that named it, so no task refers to the old name afterwards.
+**Type consistency.** `planH2`, `PLAN_MARK`, `sectionNodes`, `buildDag`, `normId`, `nodeName`, `planRegionHeadings`, `safeHref`, `decodeEntities`, `banner`, `decodeB64`, and `esc` are defined once and referenced consistently. Task 15 renames `planTasks` to `planRegionHeadings`; Step 3f retargets the one earlier assertion that names it, raises the guard floor to 16, and lists the three assertions in the same block that are expected to survive the rename untouched, so no task refers to the old name afterwards.
 
 **Walk-tag coverage.** Twenty-three tasks, each tagged. Three are `browser-walk-only` (Tasks 13, 14, 23). Nine walk cases, covering diagram legibility, index behavior, responsive layout, error isolation, print, inertness, graph correctness, the pending notice, and cross-browser parity.
 
