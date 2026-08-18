@@ -661,7 +661,12 @@ chk "descendant-scoped querySelector(\"p\") is gone from the callout walk" \
   "$(grep -c 'bq.querySelector("p")' "$S/template.html")" "0"
 
 echo "== template JS: dependency graph =="
-chk "Depends on anchored to paragraph start" \
+# Label says only what the grep can see: the anchor is present in the regex
+# text. The paragraph half of the old label -- "to paragraph start" -- is
+# carried by "only P elements are scanned for a declaration" further down; this
+# line cannot see it, and promising it here is how an assertion outlives the
+# behaviour it was meant to pin.
+chk "the declaration regex is anchored in its literal text (text pin only)" \
   "$(grep -c '\^Depends on:' "$S/template.html")" "1"
 # Label says only what the grep can actually see. "none suppresses edges"
 # promised behaviour a presence grep cannot check; the suppression itself is

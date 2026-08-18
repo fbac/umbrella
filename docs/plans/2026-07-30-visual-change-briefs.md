@@ -1590,7 +1590,12 @@ Append to `assets/change-brief/tests/render_test.sh`, before the final `echo`:
 
 ```bash
 echo "== template JS: dependency graph =="
-chk "Depends on anchored to paragraph start" \
+# Label says only what the grep can see: the anchor is present in the regex
+# text. The paragraph half of the old label -- "to paragraph start" -- is
+# carried by "only P elements are scanned for a declaration" further down; this
+# line cannot see it, and promising it here is how an assertion outlives the
+# behaviour it was meant to pin.
+chk "the declaration regex is anchored in its literal text (text pin only)" \
   "$(grep -c '\^Depends on:' "$S/template.html")" "1"
 # Label says only what the grep can actually see. "none suppresses edges"
 # promised behaviour a presence grep cannot check; the suppression itself is
@@ -1925,7 +1930,13 @@ git commit -m "feat(change-brief): derive task graph from Depends on, scoped to 
 
 Mermaid v10 is async-only: the v8/v9 callback form produces no output and no exception, leaving every diagram blank. Each fence renders twice up front so theme switching is a pure CSS toggle and print can select the light variant synchronously.
 
-`flowchart: { htmlLabels: false }` is not cosmetic and is not optional. Mermaid v10 renders flowchart labels by assigning them as **innerHTML** inside a `<foreignObject>` — verified against the vendored 10.9.1 bundle, where a `<b>x</b>` label at `securityLevel:"strict"` comes back as a real `<b>` element. DOMPurify strips event handlers but keeps `img`, so `### Task 4: <img src=https://evil.example/x.png>` becomes a **live network request** from a file whose entire premise is inertness in a webmail preview pane or a DLP sandbox. This defeats Task 9's image neutralisation through a door Task 9 never covered: Task 9 escapes payload HTML at parse time so the DOM holds the literal string, and Tasks 11 and 12 are the first paths that hand that literal back to a renderer which un-escapes it. Turning HTML labels off puts labels back into SVG `<text>` with no element construction at all — verified — and doing it in `initialize` covers Task 11's fence extraction and Task 12's derived graph in one place.
+`flowchart: { htmlLabels: false }` is not cosmetic and is not optional. The reason splits into something observed and something inferred from it, and the two are kept apart deliberately — a later reader will take whatever this paragraph asserts as verified.
+
+**Observed**, in two independent runs against the vendored 10.9.1 bundle: mermaid v10 builds flowchart labels as *markup*, not as text. A `<b>x</b>` label at `securityLevel:"strict"` comes back as a real `<b>` element inside a `<foreignObject>`. With `flowchart: { htmlLabels: false }` set, the same labels come back as SVG `<text>` with no element construction at all.
+
+**Inferred from that, and not yet confirmed in a real browser:** if labels are constructed as elements, then any tag DOMPurify's allowlist keeps becomes a live element — and for a resource-loading tag, `img` being the obvious one, a live element means a network request from a file whose entire premise is inertness in a webmail preview pane or a DLP sandbox. Nobody has yet watched `### Task 4: <img src=https://evil.example.invalid/x.png>` actually issue that request. `DOMPurify` is not reachable on `window` from the bundle, so its allowlist has been read rather than exercised, and an `<img>`-bearing label never settles under jsdom, so the render cannot be driven to the point where a request would fire. **Walk case 10 confirms or refutes this, and its result belongs back in this paragraph.**
+
+The fix does not wait on that confirmation, because the observed half already justifies it: a document whose whole premise is inertness must not hand un-escaped payload text to a renderer that constructs elements out of it. That is also a door Task 9 never covered — Task 9 escapes payload HTML at parse time so the DOM holds the literal string, and Tasks 11 and 12 are the first paths that hand that literal *back* to a renderer which un-escapes it. Setting it in `initialize` covers Task 11's fence extraction and Task 12's derived graph in one place.
 
 One more consequence, recorded because the renderer below is a sequential `boxes.reduce(chain.then(...))`: a box whose render promise never settles stalls every later diagram and the whole second pass. Under jsdom an `<img>`-bearing label reproduces exactly that with HTML labels on, and does not with them off. If a future change re-enables HTML labels, or adds any renderer path that can hang, the chain must be made non-stallable (race each box against a timeout) before that change lands.
 
@@ -2013,7 +2024,7 @@ Append inside the IIFE, after the per-task progress section:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: five PASSes, exit 0. Visual confirmation is **walk cases 2, 4 and 5** — the static test proves the API contract, not that diagrams are legible.
+Expected: five PASSes, exit 0. Visual confirmation is **walk cases 2, 4, 5 and 10** — the static test proves the API contract, not that diagrams are legible.
 
 - [ ] **Step 5: Commit**
 
@@ -2852,7 +2863,7 @@ Then, if `npm` and a system Chrome are available:
 ```bash
 cd assets/change-brief/tests/browser && npm install && node verify.mjs
 ```
-Expected: `browser: N passed, 0 failed`, exit 0. If playwright-core cannot install, skip — walk cases 1-9 cover the same ground.
+Expected: `browser: N passed, 0 failed`, exit 0. If playwright-core cannot install, skip — walk cases 1-10 cover the same ground.
 
 - [ ] **Step 5: Commit**
 
@@ -3512,7 +3523,7 @@ git commit -m "chore(change-brief): dogfood render and completed browser walk"
 
 ## Browser-Walk Inventory
 
-Nine cases, carried forward from the spec's `browser-walk-only` requirements. No account or login is involved anywhere — every case opens a local file. Execute each in full sentences and record pass or fail.
+Ten cases. Nine are carried forward from the spec's `browser-walk-only` requirements; case 10 was added by Task 13 to settle a consequence that task states but cannot verify statically. No account or login is involved anywhere — every case opens a local file. Execute each in full sentences and record pass or fail.
 
 1. **Index navigation.** Open `docs/briefs/2026-07-27-visual-change-briefs-design.html` from `file://` in Chrome at a 1440px-wide window. Confirm the left sidebar lists every `##` section of the document as a top-level entry, with each of that section's `###` subsections nested beneath it. Click a chevron next to one group and confirm it collapses that group's children without navigating away from the current scroll position. Confirm the Plan group lists all twenty-three tasks as children, not just the first few.
 
@@ -3532,6 +3543,8 @@ Nine cases, carried forward from the spec's `browser-walk-only` requirements. No
 
 9. **Cross-browser rendering.** Open the dogfood brief from `file://` in Firefox and again in Safari. In each, confirm the page renders equivalently to Chrome: the sidebar index is populated, every diagram is visible, the theme toggle switches themes, and no red integrity banner appears. Note any rendering difference that would mislead a reviewer.
 
+10. **HTML in a heading, through the mermaid label path.** This case exists to settle the inferred half of Task 13's `htmlLabels` reasoning, which no static test can reach. Write a two-task fixture — two tasks so a dependency graph is drawn at all — whose first heading carries an image tag: `### Task 1: probe <img src=https://evil.example.invalid/x.png>`, with `### Task 2: second` and a `**Depends on:** Task 1` under it. Render it with `assets/change-brief/render.sh`. Open the developer console and the network tab **before** loading the file, leave the network enabled, then open the rendered brief from `file://`. The `.invalid` TLD never resolves, so a request attempt is visible in the network tab without anything leaving the machine. Confirm the network tab shows zero requests, and no attempt, to `evil.example.invalid` or any other host. Inspect the graph's first node in the elements panel and confirm its label is an SVG `<text>` element holding the tag as literal characters — no `<foreignObject>`, and no `<img>` element anywhere inside the diagram. Then remove `flowchart: { htmlLabels: false }` from `mermaid.initialize` in `assets/change-brief/template.html`, re-render, and reload with the network tab open: record whether you now see a `<foreignObject>` label, an `<img>` element, and a request attempt, or whether DOMPurify strips the tag after all. Restore the setting afterwards. Report which of the two you saw — the answer is what Task 13's prose is waiting on.
+
 ---
 
 ## Self-Review
@@ -3542,6 +3555,6 @@ Nine cases, carried forward from the spec's `browser-walk-only` requirements. No
 
 **Type consistency.** `planH2`, `PLAN_MARK`, `sectionNodes`, `buildDag`, `normId`, `nodeName`, `planRegionHeadings`, `safeHref`, `decodeEntities`, `banner`, `decodeB64`, and `esc` are defined once and referenced consistently. Task 15 renames `planTasks` to `planRegionHeadings`; Step 3f retargets the one earlier assertion that names it, raises the guard floor to 16, and lists the three assertions in the same block that are expected to survive the rename untouched, so no task refers to the old name afterwards.
 
-**Walk-tag coverage.** Twenty-three tasks, each tagged. Three are `browser-walk-only` (Tasks 13, 14, 23). Nine walk cases, covering diagram legibility, index behavior, responsive layout, error isolation, print, inertness, graph correctness, the pending notice, and cross-browser parity.
+**Walk-tag coverage.** Twenty-three tasks, each tagged. Three are `browser-walk-only` (Tasks 13, 14, 23). Ten walk cases, covering diagram legibility, index behavior, responsive layout, error isolation, print, inertness, graph correctness, the pending notice, cross-browser parity, and HTML in a heading through the mermaid label path.
 
 **Known risk carried forward.** Task 22 cannot pass from the working tree alone — it needs a real plugin install, and if the plugin payload does not ship `assets/`, Step 3 of that task is where it surfaces. That is deliberate: the spec names this the single highest-leverage failure point in the change.
