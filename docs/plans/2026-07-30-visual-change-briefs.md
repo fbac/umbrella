@@ -1592,16 +1592,154 @@ Append to `assets/change-brief/tests/render_test.sh`, before the final `echo`:
 echo "== template JS: dependency graph =="
 chk "Depends on anchored to paragraph start" \
   "$(grep -c '\^Depends on:' "$S/template.html")" "1"
-chk "none suppresses edges" "$(grep -c '\^none' "$S/template.html")" "1"
-chk "graph scoped by plan region" "$(grep -c 'function planTasks' "$S/template.html")" "1"
+# Label says only what the grep can actually see. "none suppresses edges"
+# promised behaviour a presence grep cannot check; the suppression itself is
+# covered by the DOM walk, not by this line.
+chk "the none-suppression regex literal is present (text pin only)" \
+  "$(grep -c '\^none' "$S/template.html")" "1"
+# Anchored to indent 2, unlike the plan's original unanchored form and for the
+# reason the sectionNodes assertion above spells out: 'function planTasks'
+# still counts 1 when the declaration is wrapped in a guard(), which is the
+# regression the label exists to forbid. (Task 15 replaces planTasks with
+# planRegionHeadings and must retarget this line in its anchored form.)
+chk "graph scoped by plan region" \
+  "$(grep -c '^  function planTasks' "$S/template.html")" "1"
 chk "unknown edge targets dropped" \
   "$(grep -c 'known\[e\[0\]\] && known\[e\[1\]\]' "$S/template.html")" "1"
+# Same anchor, same reason: buildDag is a helper the guarded sections call, so
+# a guard() wrapper scopes its declaration to that callback and the caller dies
+# with "buildDag is not defined", reported under someone else's label.
+chk "buildDag stays a declaration at IIFE scope, not inside a guard()" \
+  "$(grep -c '^  function buildDag' "$S/template.html")" "1"
+# The one binding that deliberately does NOT live inside its guard. Task 15
+# adds a sibling "No tasks found" banner statement that reads `tasks`; a
+# declaration hoisted into a guard callback is function-scoped to it and
+# invisible there. Indent 2 IS the assertion -- moving it inside the callback
+# reindents it to 4 and this fails, which is exactly the claim in the label.
+chk "tasks is declared at IIFE scope, not inside a guard callback" \
+  "$(grep -c '^  var tasks = \[\];' "$S/template.html")" "1"
+chk "the collect guard assigns that outer binding rather than declaring a fresh local" \
+  "$(grep -c '^    tasks = plan' "$S/template.html")" "1"
+# The anchored regex alone does not make the scan paragraph-scoped: without
+# this filter every node in the section is searched, and the string is
+# harvested out of code fences and list items alike -- a plan step reading
+# 'add `Depends on: Task 3` to the template' fabricated a real edge.
+chk "only P elements are scanned for a declaration" \
+  "$(grep -c 'if (nodes\[i\].tagName !== "P") continue;' "$S/template.html")" "1"
+# Containment for the two sections this task adds, by label, per the doctrine.
+for label in \
+  'guard("dag: collect plan tasks"' \
+  'guard("dag: build and insert graph"' \
+; do
+  chk "guarded: $label" "$(grep -cF "$label" "$S/template.html")" "1"
+done
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 15 ] && ok "at least 15 top-level sections guarded (floor raised by this task)" \
+  || no "at least 15 top-level sections guarded (floor raised by this task)" "$n"
+# planTasks() reads planH2, a var assigned by the structural-integrity block
+# above. The declaration hoists; the CALL does not. A collect guard placed
+# before that assignment sees undefined, returns [], and the graph disappears
+# with no error on the page and none in the console either. Presence greps
+# cannot see that; assert the source order the correctness depends on.
+planh2_ln=$(grep -n '^  var planH2 = ' "$S/template.html" | head -1 | cut -d: -f1)
+collect_ln=$(grep -n 'guard("dag: collect plan tasks"' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$planh2_ln" ] && [ -n "$collect_ln" ] && [ "$planh2_ln" -lt "$collect_ln" ]; then
+  ok "the plan-region scan runs after planH2 is assigned"
+else
+  no "the plan-region scan runs after planH2 is assigned" \
+     "planH2=[${planh2_ln:-missing}] collect=[${collect_ln:-missing}]"
+fi
+
+echo "== template JS: dependency graph — derivation defects =="
+# A1. dm[1].match(/\d+/g) read every number left in the declaration as a task
+# id. "Depends on: Task 1 (see section 4.2 of the spec)" emitted the real edge
+# plus phantom 4-> and 2->, and on a plan that HAS a task 4 the phantom reverses
+# the real 3->4 and draws a cycle the source never declared. known[] only drops
+# numbers larger than the task count, so it protects two-task plans and nothing
+# else. Each of these four lines is one half of the replacement; all four are
+# needed for the tokenised form to be the tokenised form.
+chk "the loose digit harvest is gone" \
+  "$(grep -cF 'dm[1].match(/\d+/g)' "$S/template.html")" "0"
+chk "parentheticals are stripped before the split" \
+  "$(grep -cF 'replace(/\([^)]*\)/g, " ")' "$S/template.html")" "1"
+chk "the declaration is split into tokens on comma/semicolon/and/&/+" \
+  "$(grep -cF 'split(/\s*(?:,|;|\band\b|&|\+)\s*/i)' "$S/template.html")" "1"
+chk "a token earns an edge only if the whole token is a task reference" \
+  "$(grep -cF '/^\s*(?:Tasks?\s*)?#?(\d+(?:\.\d+)*)\.?\s*$/i' "$S/template.html")" "1"
+chk "self-edges are dropped" \
+  "$(grep -cF 'if (d !== id) edges.push([d, id]);' "$S/template.html")" "1"
+
+# A2. Two headings on one id render as ONE mermaid node with the last label --
+# verified against the vendored 10.9.1 -- so a real task is deleted silently and
+# its edges misroute onto the survivor. Root cause is the id shape: "." reads as
+# the title separator, so 2.1 and 2.2 both collapse onto T2, and "Task 03" never
+# matches a "Depends on: Task 3" reference.
+chk "the heading id captures a dotted sub-number" \
+  "$(grep -cF '/^Task\s+(\d+(?:\.\d+)*)\s*[:.—-]?\s*(.*)$/i' "$S/template.html")" "1"
+chk "every id segment is normalised through parseInt, killing zero-padding" \
+  "$(grep -cF 'String(parseInt(seg, 10))' "$S/template.html")" "1"
+chk "the mermaid node name is derived from the id, dots to underscores" \
+  "$(grep -cF 'function nodeName(id){ return "T" + id.replace(/\./g, "_"); }' "$S/template.html")" "1"
+# The rename is only real if nothing still concatenates a bare id into a node
+# name; a leftover "T" + e[0] emits T2.1, which is not a legal node name.
+chk "no bare T-plus-id node name is left behind" \
+  "$(grep -cF '"  T" + e[0]' "$S/template.html")" "0"
+chk "colliding ids suppress the graph instead of emitting a silently wrong one" \
+  "$(grep -cF 'if (dup) return { src: null, dup: dup };' "$S/template.html")" "1"
+
+# A3. The negative caption asserted a fact about the SOURCE while knowing only a
+# fact about the PARSE. A plan declaring "- **Depends on:** Task 1" as a list
+# item, or in a table cell, is correctly skipped by the P-only scan -- and the
+# page then told the reader those tasks were independent.
+chk "the old source-level claim is gone" \
+  "$(grep -c 'tasks are independent' "$S/template.html")" "0"
+chk "the negative caption describes what was recognised, not what the plan says" \
+  "$(grep -c 'no Depends on: declarations were recognised' "$S/template.html")" "1"
+chk "the suppression caption says why it is suppressed" \
+  "$(grep -c 'dependency graph suppressed' "$S/template.html")" "1"
+
+# A4. A trailing h2 terminates sectionNodes, but trailing content with no
+# heading does not: the last task's section runs to EOF, so a closing paragraph
+# after a "---" rule was read as that task's declaration.
+chk "an HR stops the declaration scan" \
+  "$(grep -cF 'if (nodes[i].tagName === "HR") break;' "$S/template.html")" "1"
+
+# A5/A6, and the two behaviours the block never covered at all.
+chk "the walk tag is matched at the end of the heading, not as a substring" \
+  "$(grep -cF '/\s*[—–-]\s*browser-walk-only\s*$/.test(h.textContent)' "$S/template.html")" "1"
+chk "duplicate declarations collapse to one arrow" \
+  "$(grep -cF 'var k = e[0] + ">" + e[1];' "$S/template.html")" "1"
+chk "walk tasks still get the amber classDef" \
+  "$(grep -c 'classDef walk fill:#b45309' "$S/template.html")" "1"
+chk "a single-task plan suppresses the graph" \
+  "$(grep -cF 'if (tasks.length < 2) return null;' "$S/template.html")" "1"
+
+# A9. tasks[0].parentNode is #content only while planTasks() returns siblings of
+# the sentinel. Task 15's compareDocumentPosition filter also matches an h3
+# marked nests inside an <li>, and the diagram would be buried in that list
+# item. Anchoring to planH2 is correct now and survives Task 15 unchanged.
+chk "insertion no longer anchors on the first task's parent" \
+  "$(grep -cF 'tasks[0].parentNode' "$S/template.html")" "0"
+chk "box and caption are both inserted at the sentinel's next sibling" \
+  "$(grep -cF 'planH2.parentNode.insertBefore' "$S/template.html")" "2"
+# .dag-caption pulls itself up under the diagram with margin-top:-8px, so the
+# box has to be inserted first. Both calls target the same anchor, which makes
+# source order the thing that decides DOM order -- a presence grep cannot see
+# it, so assert the order.
+dagbox_ln=$(grep -n 'insertBefore(box, anchor)' "$S/template.html" | head -1 | cut -d: -f1)
+dagcap_ln=$(grep -n 'insertBefore(cap, anchor)' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$dagbox_ln" ] && [ -n "$dagcap_ln" ] && [ "$dagbox_ln" -lt "$dagcap_ln" ]; then
+  ok "the diagram is inserted before its caption, which .dag-caption's negative top margin depends on"
+else
+  no "the diagram is inserted before its caption, which .dag-caption's negative top margin depends on" \
+     "box=[${dagbox_ln:-missing}] cap=[${dagcap_ln:-missing}]"
+fi
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: four FAILs, exit 1.
+Expected: every assertion in the two new blocks FAILs — both blocks are new — exit 1.
 
 - [ ] **Step 3: Add the dependency graph builder**
 
@@ -1610,41 +1748,91 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
 ```js
   /* ---------- task dependency graph, built from **Depends on:** ---------- */
   function buildDag(headings){
+    /* Ids are normalised, not used raw. Zero-padding and sub-numbers both have
+       to survive the round trip: "### Task 03:" and a "Depends on: Task 3"
+       reference are otherwise different ids and the edge silently disappears,
+       while "### Task 2.1:" and "### Task 2.2:" both collapse onto T2 because
+       "." reads as the title separator. Driven against the vendored mermaid
+       10.9.1, two node definitions sharing an id render as ONE node with the
+       last label -- no error, no warning, a real task deleted and its edges
+       misrouted onto the survivor. parseInt per dot-separated segment kills the
+       padding; keeping the dotted number as the id keeps 2.1 and 2.2 apart. */
+    function normId(raw){
+      return String(raw).split(".").map(function(seg){
+        return String(parseInt(seg, 10));
+      }).join(".");
+    }
+    /* "." is not legal in a mermaid node name; the DISPLAY id keeps it. */
+    function nodeName(id){ return "T" + id.replace(/\./g, "_"); }
     var tasks = [], edges = [];
     headings.forEach(function(h){
       /* Task 11's toc capture is a guarded section: if it ever catches, the
          attribute is absent and h.dataset.toc.match throws. Fall back to the
          live heading text rather than losing this feature too. */
-      var m = (h.dataset.toc || h.textContent).match(/^Task\s+(\d+)\s*[:.—-]?\s*(.*)$/i);
+      var m = (h.dataset.toc || h.textContent).match(/^Task\s+(\d+(?:\.\d+)*)\s*[:.—-]?\s*(.*)$/i);
       if (!m) return;
-      var id = m[1], label = (m[2] || "").trim() || ("Task " + id);
-      var walk = /browser-walk-only/.test(h.textContent);
+      var id = normId(m[1]), label = (m[2] || "").trim() || ("Task " + id);
+      /* Anchored to the end of the heading, the same shape the toc capture
+         uses. A bare substring test paints "### Task 2: Document the
+         browser-walk-only convention — static-verifiable" amber. */
+      var walk = /\s*[—–-]\s*browser-walk-only\s*$/.test(h.textContent);
       tasks.push({ id:id, label:label, walk:walk });
       /* Anchored to the START of a paragraph, first declaration only, and
          "none" suppresses. A loose search over every node in the section
          harvests the string from prose and code fences alike — a step reading
-         'add `Depends on: Task 3` to the template' fabricated a real edge. */
+         'add `Depends on: Task 3` to the template' fabricated a real edge.
+         The HR stop closes the other end of the same leak: the last task's
+         section runs to EOF, so a closing paragraph sitting after a "---" rule,
+         which belongs to no task at all, was attributed to whichever task
+         happened to come last. */
       var nodes = sectionNodes(h);
       for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].tagName === "HR") break;
         if (nodes[i].tagName !== "P") continue;
         var dm = (nodes[i].textContent || "").trim().match(/^Depends on:\s*(.*)$/i);
         if (!dm) continue;
         if (!/^none\b/i.test(dm[1].trim())) {
-          var deps = dm[1].match(/\d+/g);
-          if (deps) deps.forEach(function(d){ if (d !== id) edges.push([d, id]); });
+          /* Tokenised, never a digit harvest. Reading every number left in the
+             sentence as a task id turns "Depends on: Task 1 (see section 4.2 of
+             the spec)" into the real 1->N edge PLUS phantom 4->N and 2->N; on a
+             plan that has a task 4 the phantom reverses the real 3->4 and draws
+             a cycle the source never declared. known[] below only rescues
+             numbers larger than the task count, so its protection is strongest
+             on the two-task plans that do not need it and nil on the long ones
+             this feature exists for. A token earns an edge only if the whole
+             token is a task reference. */
+          dm[1].replace(/\([^)]*\)/g, " ").split(/\s*(?:,|;|\band\b|&|\+)\s*/i)
+            .forEach(function(tok){
+              var t = tok.match(/^\s*(?:Tasks?\s*)?#?(\d+(?:\.\d+)*)\.?\s*$/i);
+              if (!t) return;
+              var d = normId(t[1]);
+              if (d !== id) edges.push([d, id]);
+            });
         }
         break;
       }
     });
     if (tasks.length < 2) return null;
-    var known = {}; tasks.forEach(function(t){ known[t.id] = true; });
-    edges = edges.filter(function(e){ return known[e[0]] && known[e[1]]; });
+    var known = {}, dup = null;
+    tasks.forEach(function(t){ if (known[t.id] && !dup) dup = t.id; known[t.id] = true; });
+    /* Suppress rather than mislead. Two headings on the same normalised number
+       cannot be drawn without deleting one of them, and a graph that quietly
+       drops a task while captioning itself as the plan's dependency graph is
+       the exact failure class this file exists to refuse. */
+    if (dup) return { src: null, dup: dup };
+    var seen = {};
+    edges = edges.filter(function(e){
+      var k = e[0] + ">" + e[1];
+      if (seen[k]) return false;            /* two declarations, one arrow */
+      seen[k] = true;
+      return known[e[0]] && known[e[1]];
+    });
     var lines = ["flowchart LR"];
     tasks.forEach(function(t){
-      lines.push('  T' + t.id + '["' + t.id + ' · ' + t.label.replace(/["]/g, "'") + '"]');
+      lines.push('  ' + nodeName(t.id) + '["' + t.id + ' · ' + t.label.replace(/["]/g, "'") + '"]');
     });
-    edges.forEach(function(e){ lines.push("  T" + e[0] + " --> T" + e[1]); });
-    var walks = tasks.filter(function(t){ return t.walk; }).map(function(t){ return "T" + t.id; });
+    edges.forEach(function(e){ lines.push("  " + nodeName(e[0]) + " --> " + nodeName(e[1])); });
+    var walks = tasks.filter(function(t){ return t.walk; }).map(function(t){ return nodeName(t.id); });
     if (walks.length){
       lines.push("  classDef walk fill:#b45309,stroke:#b45309,color:#fff");
       lines.push("  class " + walks.join(",") + " walk");
@@ -1655,42 +1843,72 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
      not to the first task-shaped h3 in the document. A spec that illustrates
      the plan format with its own "### Task 1: ..." heading otherwise captured
      the anchor, putting the graph a document above the real tasks and emitting
-     a duplicate T1 node with a conflicting label. */
+     a duplicate T1 node with a conflicting label.
+
+     A helper, not a section: like sectionNodes above it stays unwrapped at
+     IIFE scope on purpose, since a guard() would scope the declaration to that
+     callback and its caller would die under the wrong label. */
   function planTasks(){
     var out = [], n = planH2 ? planH2.nextElementSibling : null;
     while (n) { if (n.tagName === "H3") out.push(n); n = n.nextElementSibling; }
     return out;
   }
+  /* Declared here, at IIFE scope, and assigned inside the guard below — not
+     declared inside it. Task 15 adds a sibling "No tasks found" banner that
+     reads this binding; a var inside a guard callback is function-scoped to
+     that callback and invisible to anything after it. Containment still holds:
+     what can throw is the scan, and the scan is what the guard wraps. */
+  var tasks = [];
   /* The same (h.dataset.toc || h.textContent) fallback the DAG builder uses,
      and this is where it has to be: this filter is the real gate. test()
      coerces a missing attribute to "undefined" without throwing, so a caught
-     guard("decorate: heading toc text") makes every heading test false, tasks
+     guard for the heading toc text makes every heading test false, tasks
      comes back empty, buildDag is never called, and the fallback inside it can
      never fire. */
-  var tasks = planTasks().filter(function(h){
-    return /^Task\s+\d+/i.test(h.dataset.toc || h.textContent);
+  guard("dag: collect plan tasks", function(){
+    tasks = planTasks().filter(function(h){
+      return /^Task\s+\d+/i.test(h.dataset.toc || h.textContent);
+    });
   });
-  if (tasks.length) {
+  guard("dag: build and insert graph", function(){
+    if (!tasks.length || !planH2) return;
     var dag = buildDag(tasks);
-    if (dag) {
-      var cap = document.createElement("div");
-      cap.className = "dag-caption";
-      cap.textContent = dag.edges
-        ? "task dependency graph — derived from declared Depends on:"
-        : "tasks are independent — no declared dependencies";
+    if (!dag) return;
+    var cap = document.createElement("div");
+    cap.className = "dag-caption";
+    /* Describes the PARSE, never the source. A caption announcing that the
+       tasks have no dependencies is a claim about the DOCUMENT, and it is flatly
+       false whenever a plan declares its dependencies as list items or table
+       cells — shapes the P-only scan above deliberately skips so that fixture
+       fences inside a plan cannot fabricate edges. Saying what was recognised
+       is true in every case and costs nothing. */
+    cap.textContent = dag.src
+      ? (dag.edges ? "task dependency graph — derived from declared Depends on:"
+                   : "no Depends on: declarations were recognised")
+      : ("dependency graph suppressed — two task headings carry the number " +
+         dag.dup + ", so any graph drawn from them would silently drop one");
+    /* Anchored to planH2, not to the first task heading's parent node. Those
+       are the same element only while planTasks() returns siblings of the
+       sentinel; Task 15 replaces it with a compareDocumentPosition filter that
+       also matches an h3 the markdown renderer nested inside an <li>, and the
+       diagram and its caption would then be buried inside that list item. Box
+       first, caption second: .dag-caption pulls itself up under the diagram
+       with a negative top margin. */
+    var anchor = planH2.nextSibling;
+    if (dag.src) {
       var box = document.createElement("div");
       box.className = "mermaid-block";
       box.dataset.src = dag.src;
-      tasks[0].parentNode.insertBefore(box, tasks[0]);
-      tasks[0].parentNode.insertBefore(cap, tasks[0]);
+      planH2.parentNode.insertBefore(box, anchor);
     }
-  }
+    planH2.parentNode.insertBefore(cap, anchor);
+  });
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: four PASSes, exit 0.
+Expected: both new blocks PASS and the suite reports 188 passed, 0 failed.
 
 - [ ] **Step 5: Commit**
 

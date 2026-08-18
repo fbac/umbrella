@@ -663,7 +663,11 @@ chk "descendant-scoped querySelector(\"p\") is gone from the callout walk" \
 echo "== template JS: dependency graph =="
 chk "Depends on anchored to paragraph start" \
   "$(grep -c '\^Depends on:' "$S/template.html")" "1"
-chk "none suppresses edges" "$(grep -c '\^none' "$S/template.html")" "1"
+# Label says only what the grep can actually see. "none suppresses edges"
+# promised behaviour a presence grep cannot check; the suppression itself is
+# covered by the DOM walk, not by this line.
+chk "the none-suppression regex literal is present (text pin only)" \
+  "$(grep -c '\^none' "$S/template.html")" "1"
 # Anchored to indent 2, unlike the plan's original unanchored form and for the
 # reason the sectionNodes assertion above spells out: 'function planTasks'
 # still counts 1 when the declaration is wrapped in a guard(), which is the
@@ -696,7 +700,7 @@ chk "only P elements are scanned for a declaration" \
 # Containment for the two sections this task adds, by label, per the doctrine.
 for label in \
   'guard("dag: collect plan tasks"' \
-  'guard("dag: insert graph"' \
+  'guard("dag: build and insert graph"' \
 ; do
   chk "guarded: $label" "$(grep -cF "$label" "$S/template.html")" "1"
 done
@@ -715,6 +719,91 @@ if [ -n "$planh2_ln" ] && [ -n "$collect_ln" ] && [ "$planh2_ln" -lt "$collect_l
 else
   no "the plan-region scan runs after planH2 is assigned" \
      "planH2=[${planh2_ln:-missing}] collect=[${collect_ln:-missing}]"
+fi
+
+echo "== template JS: dependency graph — derivation defects =="
+# A1. dm[1].match(/\d+/g) read every number left in the declaration as a task
+# id. "Depends on: Task 1 (see section 4.2 of the spec)" emitted the real edge
+# plus phantom 4-> and 2->, and on a plan that HAS a task 4 the phantom reverses
+# the real 3->4 and draws a cycle the source never declared. known[] only drops
+# numbers larger than the task count, so it protects two-task plans and nothing
+# else. Each of these four lines is one half of the replacement; all four are
+# needed for the tokenised form to be the tokenised form.
+chk "the loose digit harvest is gone" \
+  "$(grep -cF 'dm[1].match(/\d+/g)' "$S/template.html")" "0"
+chk "parentheticals are stripped before the split" \
+  "$(grep -cF 'replace(/\([^)]*\)/g, " ")' "$S/template.html")" "1"
+chk "the declaration is split into tokens on comma/semicolon/and/&/+" \
+  "$(grep -cF 'split(/\s*(?:,|;|\band\b|&|\+)\s*/i)' "$S/template.html")" "1"
+chk "a token earns an edge only if the whole token is a task reference" \
+  "$(grep -cF '/^\s*(?:Tasks?\s*)?#?(\d+(?:\.\d+)*)\.?\s*$/i' "$S/template.html")" "1"
+chk "self-edges are dropped" \
+  "$(grep -cF 'if (d !== id) edges.push([d, id]);' "$S/template.html")" "1"
+
+# A2. Two headings on one id render as ONE mermaid node with the last label --
+# verified against the vendored 10.9.1 -- so a real task is deleted silently and
+# its edges misroute onto the survivor. Root cause is the id shape: "." reads as
+# the title separator, so 2.1 and 2.2 both collapse onto T2, and "Task 03" never
+# matches a "Depends on: Task 3" reference.
+chk "the heading id captures a dotted sub-number" \
+  "$(grep -cF '/^Task\s+(\d+(?:\.\d+)*)\s*[:.—-]?\s*(.*)$/i' "$S/template.html")" "1"
+chk "every id segment is normalised through parseInt, killing zero-padding" \
+  "$(grep -cF 'String(parseInt(seg, 10))' "$S/template.html")" "1"
+chk "the mermaid node name is derived from the id, dots to underscores" \
+  "$(grep -cF 'function nodeName(id){ return "T" + id.replace(/\./g, "_"); }' "$S/template.html")" "1"
+# The rename is only real if nothing still concatenates a bare id into a node
+# name; a leftover "T" + e[0] emits T2.1, which is not a legal node name.
+chk "no bare T-plus-id node name is left behind" \
+  "$(grep -cF '"  T" + e[0]' "$S/template.html")" "0"
+chk "colliding ids suppress the graph instead of emitting a silently wrong one" \
+  "$(grep -cF 'if (dup) return { src: null, dup: dup };' "$S/template.html")" "1"
+
+# A3. The negative caption asserted a fact about the SOURCE while knowing only a
+# fact about the PARSE. A plan declaring "- **Depends on:** Task 1" as a list
+# item, or in a table cell, is correctly skipped by the P-only scan -- and the
+# page then told the reader those tasks were independent.
+chk "the old source-level claim is gone" \
+  "$(grep -c 'tasks are independent' "$S/template.html")" "0"
+chk "the negative caption describes what was recognised, not what the plan says" \
+  "$(grep -c 'no Depends on: declarations were recognised' "$S/template.html")" "1"
+chk "the suppression caption says why it is suppressed" \
+  "$(grep -c 'dependency graph suppressed' "$S/template.html")" "1"
+
+# A4. A trailing h2 terminates sectionNodes, but trailing content with no
+# heading does not: the last task's section runs to EOF, so a closing paragraph
+# after a "---" rule was read as that task's declaration.
+chk "an HR stops the declaration scan" \
+  "$(grep -cF 'if (nodes[i].tagName === "HR") break;' "$S/template.html")" "1"
+
+# A5/A6, and the two behaviours the block never covered at all.
+chk "the walk tag is matched at the end of the heading, not as a substring" \
+  "$(grep -cF '/\s*[—–-]\s*browser-walk-only\s*$/.test(h.textContent)' "$S/template.html")" "1"
+chk "duplicate declarations collapse to one arrow" \
+  "$(grep -cF 'var k = e[0] + ">" + e[1];' "$S/template.html")" "1"
+chk "walk tasks still get the amber classDef" \
+  "$(grep -c 'classDef walk fill:#b45309' "$S/template.html")" "1"
+chk "a single-task plan suppresses the graph" \
+  "$(grep -cF 'if (tasks.length < 2) return null;' "$S/template.html")" "1"
+
+# A9. tasks[0].parentNode is #content only while planTasks() returns siblings of
+# the sentinel. Task 15's compareDocumentPosition filter also matches an h3
+# marked nests inside an <li>, and the diagram would be buried in that list
+# item. Anchoring to planH2 is correct now and survives Task 15 unchanged.
+chk "insertion no longer anchors on the first task's parent" \
+  "$(grep -cF 'tasks[0].parentNode' "$S/template.html")" "0"
+chk "box and caption are both inserted at the sentinel's next sibling" \
+  "$(grep -cF 'planH2.parentNode.insertBefore' "$S/template.html")" "2"
+# .dag-caption pulls itself up under the diagram with margin-top:-8px, so the
+# box has to be inserted first. Both calls target the same anchor, which makes
+# source order the thing that decides DOM order -- a presence grep cannot see
+# it, so assert the order.
+dagbox_ln=$(grep -n 'insertBefore(box, anchor)' "$S/template.html" | head -1 | cut -d: -f1)
+dagcap_ln=$(grep -n 'insertBefore(cap, anchor)' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$dagbox_ln" ] && [ -n "$dagcap_ln" ] && [ "$dagbox_ln" -lt "$dagcap_ln" ]; then
+  ok "the diagram is inserted before its caption, which .dag-caption's negative top margin depends on"
+else
+  no "the diagram is inserted before its caption, which .dag-caption's negative top margin depends on" \
+     "box=[${dagbox_ln:-missing}] cap=[${dagcap_ln:-missing}]"
 fi
 
 echo
