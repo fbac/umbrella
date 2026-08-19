@@ -2593,13 +2593,17 @@ chk "the per-base counter form, whose own output collided with real headings, is
 # than 0.7 of a viewport of content after it can never enter it at all. Without
 # the early return the callback clears every active class and adds none, so the
 # index goes blank through the body of every section and stays blank on the last
-# one forever.
-chk "the scrollspy keeps its last highlight when no heading is in the band" \
-  "$(grep -cF 'if (!first) return;' "$S/template.html")" "1"
+# one forever. Pinned on the RESOLUTION line rather than on the return, because
+# that is what makes the stickiness total: it funnels both blank paths -- no
+# heading in the band, and a heading that has no index entry to move the
+# highlight to -- through one guard. A `first`-only test passes this file's
+# other checks while still going blank on the second path.
+chk "the scrollspy keeps its last highlight whenever there is no entry to move it to" \
+  "$(grep -cF 'var a = first && links[first.id];' "$S/template.html")" "1"
 # Order is the entire claim. The grep above still passes with the return moved
 # below the clear loop -- where it would run after every class had already been
 # stripped, restoring exactly the blank index it exists to prevent.
-sticky_ln=$(grep -n 'if (!first) return;' "$S/template.html" | head -1 | cut -d: -f1)
+sticky_ln=$(grep -n 'if (!a) return;' "$S/template.html" | head -1 | cut -d: -f1)
 clear_ln=$(grep -n 'links\[k\].classList.remove("active")' "$S/template.html" | head -1 | cut -d: -f1)
 if [ -n "$sticky_ln" ] && [ -n "$clear_ln" ] && [ "$sticky_ln" -lt "$clear_ln" ]; then
   ok "the sticky return runs before the clear loop, not after it"
@@ -2789,7 +2793,12 @@ Append inside the IIFE, after the mermaid renderer:
      rewrites the DAG's collector into planRegionHeadings() but does not
      consolidate this one: its own assertions pin that, expecting two
      occurrences of the position constant, the second being the line below,
-     surviving that refactor untouched. */
+     surviving that refactor untouched. The two copies are semantically
+     identical -- same anchor (planH2), same document-position relation, same
+     answer for every node -- so this is redundancy, not two rules that could
+     disagree. It does mean a change to one is only a change
+     to one: anybody altering what "in the plan region" means has to alter both
+     deliberately, and the count assertion is what forces them to notice. */
   var planGroup = null, planKids = null;
 
   /* Three sections, three guards -- not one wrapper around all three. They form
@@ -2866,9 +2875,12 @@ Append inside the IIFE, after the mermaid renderer:
     /* Snapshotted once. It stays consistent with the index only while nothing
        later adds, removes or moves a heading -- an invariant a future task could
        break silently, since a heading appearing after this line gets no index
-       entry, no id and no observer, with nothing anywhere to say so. Task 13's
-       renderer is the only thing that mutates the document after this point,
-       and it touches [data-src] boxes only. */
+       entry, no id and no observer, with nothing anywhere to say so. Plenty
+       mutates the document after this point -- the theme, chevron and sidebar
+       handlers all do -- but none of them adds, removes or moves a heading, and
+       Task 13's renderer, the one that inserts nodes into #content, touches
+       [data-src] boxes only. That is the operative clause, not "nothing runs
+       later". */
     var heads = Array.prototype.slice.call(content.querySelectorAll("h2, h3"));
     var obs = new IntersectionObserver(function(entries){
       entries.forEach(function(e){ visible[e.target.id] = e.isIntersecting; });
@@ -2889,10 +2901,18 @@ Append inside the IIFE, after the mermaid renderer:
          of content after it can never enter the band at all -- the last section
          of every brief, permanently. Keeping the previous highlight self-
          corrects in both directions, because scrolling back up brings the
-         previous heading down through the band from above. */
-      if (!first) return;
+         previous heading down through the band from above.
+
+         Resolved to the link FIRST, so the same early return covers the second
+         way this goes blank: a heading with no index entry. An h3 preceding
+         every h2 gets an id and an observer but no li (see the index walk
+         above), so `first` is truthy while links[first.id] is undefined --
+         under a `first`-only test the clear loop still ran and nothing was
+         added. Measured before the fix: [] -> ['Real Section'] -> []. */
+      var a = first && links[first.id];
+      if (!a) return;
       Object.keys(links).forEach(function(k){ links[k].classList.remove("active"); });
-      if (links[first.id]) links[first.id].classList.add("active");
+      a.classList.add("active");
     }, { rootMargin:"0px 0px -70% 0px", threshold:0 });
     heads.forEach(function(h){ obs.observe(h); });
   });
@@ -3372,14 +3392,21 @@ An arrow --> appears in prose before the dangling opener below.
 This section must still render.
 ```
 
-`assets/change-brief/tests/fixtures/plan-region.md` — a spec that deliberately collides with every heuristic the plan region has to survive: it carries its own `## Plan` section, its own `### Task 1:` heading, and (paired with `plan.md`) a foreign `##` between the sentinel and the real tasks. One fixture closes three `static-verifiable` requirements that were otherwise covered only by the browser walk.
+`assets/change-brief/tests/fixtures/plan-region.md` — a spec that deliberately collides with every heuristic the plan region has to survive: it carries its own `## Plan` section, its own `### Task 1:` heading, and (paired with `plan.md`) a foreign `##` between the sentinel and the real tasks. One fixture closes three `static-verifiable` requirements that were otherwise covered only by the browser walk. It also carries a `sequenceDiagram` fence followed by a `## Database` heading, and that pairing is load-bearing rather than decoration: `database` is one of eight ids the diagram library emits unnamespaced that a lowercased heading can reach, and the fence has to come first, because `getElementById` returns the first match in document order. That is what gives the `deadAnchors` assertion below something it can actually fail on. Measured through the real pipeline: amended fixture, prefix present -> `[]`; amended fixture, `h-` prefix deleted from `slug` -> `["database"]`; **unamended fixture, prefix deleted -> `[]`**. Without the fence and the heading the assertion passes whether the template is correct or not. If you change this fixture, re-run that third case before trusting the check.
 
-```markdown
+````markdown
 # Plan Region Collision Fixture
 
 ## Why this change
 
 A spec that talks about plans, using the plan vocabulary in its own prose.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  Reviewer->>Brief: opens
+  Brief-->>Reviewer: renders
+```
 
 ## Plan
 
@@ -3394,7 +3421,13 @@ spec, so it must not appear in the Plan index group and must not emit a graph no
 ## Design
 
 Body.
-```
+
+## Database
+
+A section name that slugs onto an id the diagram library emits unnamespaced. The
+sequence fence above precedes it, so with the heading-id prefix removed this
+heading's index entry resolves to a <symbol> in <defs> instead of to the heading.
+````
 
 - [ ] **Step 4: Run the suite to verify it passes**
 
@@ -3586,11 +3619,6 @@ async function probe(file) {
   chk('gate2: all three tasks under Plan', plan ? plan.kids.length : 0, 3);
   chk('gate2: dag caption present', typeof r.dagCaption === 'string', true);
   chk('gate2: spec diagram plus dag rendered', [r.light, r.dark], [2, 2]);
-  // The property no static test can reach: after the diagrams have landed,
-  // every index entry still resolves to its own heading. A heading whose id
-  // collides with one the library injects resolves to that node instead --
-  // silently, and only when the diagram precedes the heading in document order.
-  chk('gate2: every index entry resolves to its own heading', r.deadAnchors, []);
   chk('gate2: no page errors', r.pageerrors, []);
 }
 
@@ -3619,6 +3647,16 @@ async function probe(file) {
       (plan ? plan.kids : []).some(k => /Example quoted/.test(k)), false);
   chk('plan-region: graph node emitted once per real task',
       (r.dagSrc.match(/^\s*T\d+\[/gm) || []).length, 3);
+  // The property no static test can reach, and the reason this fixture carries a
+  // sequence fence ahead of a "## Database" heading. Every index entry must still
+  // resolve to its own heading after the diagrams have landed: a heading whose id
+  // collides with one the library injects resolves to that node instead, silently,
+  // and only when the diagram precedes it in document order. This page holds both
+  // marker vocabularies -- the generated flowchart DAG and the sequence fence --
+  // so it covers the whole family rather than one diagram type. Asserted HERE and
+  // not in gate2, whose fixtures collide with nothing and would report [] with the
+  // template's heading-id prefix deleted.
+  chk('plan-region: every index entry resolves to its own heading', r.deadAnchors, []);
   chk('plan-region: no banners', r.banners, []);
   chk('plan-region: no page errors', r.pageerrors, []);
 }
@@ -4340,7 +4378,7 @@ git commit -m "chore(change-brief): dogfood render and completed browser walk"
 
 Eleven cases. Nine are carried forward from the spec's `browser-walk-only` requirements; cases 10 and 11 were added by Task 13 to settle consequences that task states but cannot verify statically. No account or login is involved anywhere — every case opens a local file. Execute each in full sentences and record pass or fail.
 
-1. **Index navigation.** Open `docs/briefs/2026-07-27-visual-change-briefs-design.html` from `file://` in Chrome at a 1440px-wide window. Confirm the left sidebar lists every `##` section of the document as a top-level entry, with each of that section's `###` subsections nested beneath it. Click a chevron next to one group and confirm it collapses that group's children without navigating away from the current scroll position. Confirm the Plan group lists all twenty-three tasks as children, not just the first few. Click one entry in the Plan group and confirm the page lands on that task's own heading — this is the only check anywhere that a heading id still resolves to its heading after the diagrams have injected their own ids, and it is what would surface a collision the `h-` prefix does not cover. Then scroll slowly from the top of the document to the bottom and confirm exactly one index entry is highlighted at all times, that it tracks the section you are reading, and that it never goes blank — including while you are deep inside a long section and while you are at the very end of the document.
+1. **Index navigation.** Open `docs/briefs/2026-07-27-visual-change-briefs-design.html` from `file://` in Chrome at a 1440px-wide window. Confirm the left sidebar lists every `##` section of the document as a top-level entry, with each of that section's `###` subsections nested beneath it. Click a chevron next to one group and confirm it collapses that group's children without navigating away from the current scroll position. Confirm the Plan group lists all twenty-three tasks as children, not just the first few. Click one entry in the Plan group and confirm the page lands on that task's own heading — this is the only check anywhere that a heading id still resolves to its heading after the diagrams have injected their own ids, and it is what would surface a collision the `h-` prefix does not cover. Then scroll slowly from the top of the document to the bottom and confirm the index highlight never goes blank — not while you are deep inside a long section with no heading anywhere near the top of the viewport, and not at the very end of the document. Expect it to follow the section you are reading, but do not record lag as a failure, because the geometry does not promise it: the highlight only moves when a heading crosses the top 30% of the viewport, so a final heading with less than roughly two thirds of a viewport of content after it can never become active at all and the previous entry stays lit, and a jump straight to an anchor the page cannot scroll into that band fires no update either. What must never happen, on any of those paths, is no entry highlighted at all.
 
 2. **Theme switching.** With the same page open, click the theme control in the sidebar header through all three states: auto, light, and dark. In each state confirm every mermaid diagram remains legible — specifically that no diagram shows dark text on a dark background or light text on a light background. Reload the page and confirm the theme you last selected is still in effect.
 

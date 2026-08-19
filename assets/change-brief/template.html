@@ -1087,7 +1087,12 @@ __BRIEF_B64__
      rewrites the DAG's collector into planRegionHeadings() but does not
      consolidate this one: its own assertions pin that, expecting two
      occurrences of the position constant, the second being the line below,
-     surviving that refactor untouched. */
+     surviving that refactor untouched. The two copies are semantically
+     identical -- same anchor (planH2), same document-position relation, same
+     answer for every node -- so this is redundancy, not two rules that could
+     disagree. It does mean a change to one is only a change
+     to one: anybody altering what "in the plan region" means has to alter both
+     deliberately, and the count assertion is what forces them to notice. */
   var planGroup = null, planKids = null;
 
   /* Three sections, three guards -- not one wrapper around all three. They form
@@ -1164,9 +1169,12 @@ __BRIEF_B64__
     /* Snapshotted once. It stays consistent with the index only while nothing
        later adds, removes or moves a heading -- an invariant a future task could
        break silently, since a heading appearing after this line gets no index
-       entry, no id and no observer, with nothing anywhere to say so. Task 13's
-       renderer is the only thing that mutates the document after this point,
-       and it touches [data-src] boxes only. */
+       entry, no id and no observer, with nothing anywhere to say so. Plenty
+       mutates the document after this point -- the theme, chevron and sidebar
+       handlers all do -- but none of them adds, removes or moves a heading, and
+       Task 13's renderer, the one that inserts nodes into #content, touches
+       [data-src] boxes only. That is the operative clause, not "nothing runs
+       later". */
     var heads = Array.prototype.slice.call(content.querySelectorAll("h2, h3"));
     var obs = new IntersectionObserver(function(entries){
       entries.forEach(function(e){ visible[e.target.id] = e.isIntersecting; });
@@ -1187,10 +1195,18 @@ __BRIEF_B64__
          of content after it can never enter the band at all -- the last section
          of every brief, permanently. Keeping the previous highlight self-
          corrects in both directions, because scrolling back up brings the
-         previous heading down through the band from above. */
-      if (!first) return;
+         previous heading down through the band from above.
+
+         Resolved to the link FIRST, so the same early return covers the second
+         way this goes blank: a heading with no index entry. An h3 preceding
+         every h2 gets an id and an observer but no li (see the index walk
+         above), so `first` is truthy while links[first.id] is undefined --
+         under a `first`-only test the clear loop still ran and nothing was
+         added. Measured before the fix: [] -> ['Real Section'] -> []. */
+      var a = first && links[first.id];
+      if (!a) return;
       Object.keys(links).forEach(function(k){ links[k].classList.remove("active"); });
-      if (links[first.id]) links[first.id].classList.add("active");
+      a.classList.add("active");
     }, { rootMargin:"0px 0px -70% 0px", threshold:0 });
     heads.forEach(function(h){ obs.observe(h); });
   });

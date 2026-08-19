@@ -1105,13 +1105,17 @@ chk "the per-base counter form, whose own output collided with real headings, is
 # than 0.7 of a viewport of content after it can never enter it at all. Without
 # the early return the callback clears every active class and adds none, so the
 # index goes blank through the body of every section and stays blank on the last
-# one forever.
-chk "the scrollspy keeps its last highlight when no heading is in the band" \
-  "$(grep -cF 'if (!first) return;' "$S/template.html")" "1"
+# one forever. Pinned on the RESOLUTION line rather than on the return, because
+# that is what makes the stickiness total: it funnels both blank paths -- no
+# heading in the band, and a heading that has no index entry to move the
+# highlight to -- through one guard. A `first`-only test passes this file's
+# other checks while still going blank on the second path.
+chk "the scrollspy keeps its last highlight whenever there is no entry to move it to" \
+  "$(grep -cF 'var a = first && links[first.id];' "$S/template.html")" "1"
 # Order is the entire claim. The grep above still passes with the return moved
 # below the clear loop -- where it would run after every class had already been
 # stripped, restoring exactly the blank index it exists to prevent.
-sticky_ln=$(grep -n 'if (!first) return;' "$S/template.html" | head -1 | cut -d: -f1)
+sticky_ln=$(grep -n 'if (!a) return;' "$S/template.html" | head -1 | cut -d: -f1)
 clear_ln=$(grep -n 'links\[k\].classList.remove("active")' "$S/template.html" | head -1 | cut -d: -f1)
 if [ -n "$sticky_ln" ] && [ -n "$clear_ln" ] && [ "$sticky_ln" -lt "$clear_ln" ]; then
   ok "the sticky return runs before the clear loop, not after it"
