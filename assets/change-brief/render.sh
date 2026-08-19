@@ -113,8 +113,15 @@ digest() {
 strip_bom() { sed $'1s/^\xef\xbb\xbf//' "$1"; }
 has_front_matter() {
   head -n 1 "$1" | grep -q '^---[[:space:]]*$' || return 1
-  awk 'NR > 1 && NR <= 51 && /^---[ \t]*$/ { found = 1; exit }
-       NR > 1 && NR <= 51 && !/^[ \t]*$/ && !/^[A-Za-z_][A-Za-z0-9_.-]*:/ { exit }
+  # Requiring a closing "---" IS the guard; a line cap is a failure threshold,
+  # not a safety property. Accept indented continuations and list entries so a
+  # block like "tags:\n  - a" is still recognised as front matter.
+  awk 'NR == 2 && !/^[A-Za-z_][A-Za-z0-9_.-]*:/ { exit }
+       NR > 1 && /^---[ \t]*$/ { found = 1; exit }
+       NR > 1 && /^[ \t]/ { next }
+       NR > 1 && /^- / { next }
+       NR > 1 && /^[ \t]*$/ { next }
+       NR > 1 && !/^[A-Za-z_][A-Za-z0-9_.-]*:/ { exit }
        END { exit !found }' "$1"
 }
 # Skip a BOM and an optional YAML front-matter block (leading blank lines are
@@ -162,7 +169,10 @@ strip_h1() {
   ' "$TMP/preamble.md"
 }
 
-strip_h1 "$SPEC" > "$TMP/payload.md"
+# Strip any U+2060 already present in the sources so the sentinel is unique by
+# construction. A spec containing one in its own h2 would otherwise satisfy the
+# integrity assertion, letting loss after that point go unreported.
+strip_h1 "$SPEC" | LC_ALL=C sed 's/\xe2\x81\xa0//g' > "$TMP/payload.md"
 # U+2060 WORD JOINER marks the heading render.sh synthesized. The page finds
 # the plan region by it and proves the parse survived. Matching a heading named
 # "Plan" is guesswork: either document may contain its own Plan section, and
@@ -170,7 +180,7 @@ strip_h1 "$SPEC" > "$TMP/payload.md"
 printf '\n\n## Plan\342\201\240\n\n' >> "$TMP/payload.md"
 
 if [ -n "$PLAN" ]; then
-  strip_h1 "$PLAN" >> "$TMP/payload.md"
+  strip_h1 "$PLAN" | LC_ALL=C sed 's/\xe2\x81\xa0//g' >> "$TMP/payload.md"
   PLAN_STATE="plan attached"; PLAN_STATE_KEY="attached"
 else
   cat >> "$TMP/payload.md" <<'PENDING'

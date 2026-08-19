@@ -1948,19 +1948,25 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
     }
     return { src: lines.join("\n"), edges: edges.length };
   }
-  /* Scoped to the plan region — the siblings following the sentinel heading —
-     not to the first task-shaped h3 in the document. A spec that illustrates
-     the plan format with its own "### Task 1: ..." heading otherwise captured
-     the anchor, putting the graph a document above the real tasks and emitting
-     a duplicate T1 node with a conflicting label.
+  /* compareDocumentPosition, not the sibling chain: tasks nested inside a list,
+     a blockquote, or a <details> are not siblings of the sentinel and yielded
+     no graph at all, silently.
+
+     Note what this costs. planTasks() guaranteed every heading it returned was
+     a direct child of #content, and that invariant is gone: an h3 the markdown
+     renderer nested inside an <li> now qualifies. Task 12 anchors the diagram
+     and its caption on planH2 precisely because of this — anchoring on the
+     first task's parent would bury both inside that list item. That anchoring
+     must stay.
 
      A helper, not a section: like sectionNodes above it stays unwrapped at
      IIFE scope on purpose, since a guard() would scope the declaration to that
      callback and its caller would die under the wrong label. */
-  function planTasks(){
-    var out = [], n = planH2 ? planH2.nextElementSibling : null;
-    while (n) { if (n.tagName === "H3") out.push(n); n = n.nextElementSibling; }
-    return out;
+  function planRegionHeadings(){
+    if (!planH2) return [];
+    return Array.prototype.filter.call(content.querySelectorAll("h3"), function(h){
+      return !!(planH2.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
   }
   /* Declared here, at IIFE scope, and assigned inside the guard below — not
      declared inside it. Task 15 adds a sibling "No tasks found" banner that
@@ -1968,6 +1974,7 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
      that callback and invisible to anything after it. Containment still holds:
      what can throw is the scan, and the scan is what the guard wraps. */
   var tasks = [];
+  var collected = false;
   /* The same (h.dataset.toc || h.textContent) fallback the DAG builder uses,
      and this is where it has to be: this filter is the real gate. test()
      coerces a missing attribute to "undefined" without throwing, so a caught
@@ -1975,9 +1982,25 @@ Insert inside the IIFE, immediately after the `sectionNodes` definition and befo
      comes back empty, buildDag is never called, and the fallback inside it can
      never fire. */
   guard("dag: collect plan tasks", function(){
-    tasks = planTasks().filter(function(h){
+    tasks = planRegionHeadings().filter(function(h){
       return /^Task\s+\d+/i.test(h.dataset.toc || h.textContent);
     });
+    collected = true;
+  });
+  /* Gated on `collected`, not on tasks.length alone. An empty `tasks` has two
+     causes — the document genuinely has no task headings, or the guard above
+     caught — and only the first is a fact about the source. Firing on the
+     second prints a confident false claim about the reader's document with the
+     task headings visible directly below the banner, which is exactly what the
+     comment on that filter forbids. Guarded per the Tasks 9-14 containment
+     doctrine: a bare top-level statement here throws uncaught and kills every
+     section after it. */
+  guard("dag: no tasks banner", function(){
+    if (planH2 && collected && document.body.dataset.planState === "attached" && !tasks.length) {
+      banner("No tasks found",
+        "This brief was rendered with a plan attached, but no task headings were " +
+        "found in the Plan section. The dependency graph is missing.");
+    }
   });
   guard("dag: build and insert graph", function(){
     if (!tasks.length || !planH2) return;

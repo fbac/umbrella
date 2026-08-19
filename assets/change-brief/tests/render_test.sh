@@ -674,12 +674,12 @@ chk "the declaration regex is anchored in its literal text (text pin only)" \
 chk "the none-suppression regex literal is present (text pin only)" \
   "$(grep -c '\^none' "$S/template.html")" "1"
 # Anchored to indent 2, unlike the plan's original unanchored form and for the
-# reason the sectionNodes assertion above spells out: 'function planTasks'
+# reason the sectionNodes assertion above spells out: 'function planRegionHeadings'
 # still counts 1 when the declaration is wrapped in a guard(), which is the
-# regression the label exists to forbid. (Task 15 replaces planTasks with
-# planRegionHeadings and must retarget this line in its anchored form.)
+# regression the label exists to forbid. (Retargeted by Task 15, which renamed
+# planTasks to planRegionHeadings; the anchor is the part that must survive.)
 chk "graph scoped by plan region" \
-  "$(grep -c '^  function planTasks' "$S/template.html")" "1"
+  "$(grep -c '^  function planRegionHeadings' "$S/template.html")" "1"
 chk "unknown edge targets dropped" \
   "$(grep -c 'known\[e\[0\]\] && known\[e\[1\]\]' "$S/template.html")" "1"
 # Same anchor, same reason: buildDag is a helper the guarded sections call, so
@@ -1052,7 +1052,7 @@ echo "== template JS: index =="
 chk "index built from h2/h3 only" \
   "$(grep -c 'content.querySelectorAll("h2, h3")' "$S/template.html")" "2"
 chk "tasks attach by document position" \
-  "$(grep -c 'DOCUMENT_POSITION_FOLLOWING' "$S/template.html")" "1"
+  "$(grep -c 'DOCUMENT_POSITION_FOLLOWING' "$S/template.html")" "2"
 chk "scrollspy observer present" "$(grep -c 'IntersectionObserver' "$S/template.html")" "1"
 chk "mobile sidebar toggle wired" "$(grep -c 'sbToggle' "$S/template.html")" "2"
 
@@ -1133,8 +1133,8 @@ for label in \
   chk "guarded: $label" "$(grep -cF "$label" "$S/template.html")" "1"
 done
 n=$(grep -c 'guard("' "$S/template.html")
-[ "$n" -ge 19 ] && ok "at least 19 top-level sections guarded (floor raised by this task)" \
-  || no "at least 19 top-level sections guarded (floor raised by this task)" "$n"
+[ "$n" -ge 20 ] && ok "at least 20 top-level sections guarded (floor raised by this task)" \
+  || no "at least 20 top-level sections guarded (floor raised by this task)" "$n"
 
 # Three guards rather than one, and this is the assertion that makes that
 # structural rather than stylistic. The three labels above all still appear if
@@ -1191,6 +1191,61 @@ after_sb=$(awk '/^  \/\* ---------- mobile sidebar ---------- \*\/$/ { seen = 1;
                 END { print n + 0 }' "$S/template.html")
 chk "no section follows the mobile sidebar (retarget the Task 14 mirror stop marker if one must)" \
   "$after_sb" "0"
+
+echo "== known findings =="
+# F1+F2: front matter with indented values and list entries, longer than 50 lines.
+{ printf -- '---\ntags:\n  - a\n  - b\n'; for i in $(seq 1 60); do printf 'k%s: v\n' "$i"; done; printf -- '---\n# Plan FM\n\n### Task 1: A\n'; } > "$W/fm.md"
+"$S/render.sh" "$W/s.md" "$W/fm.md" -o "$W/fm.html" >/dev/null
+chk "structured front matter dropped" "$(payload "$W/fm.html" | grep -c '^tags:$')" "0"
+chk "front matter body retained" "$(payload "$W/fm.html" | grep -c '^### Task 1: A$')" "1"
+
+# F3: a U+2060 in the spec's own heading must not satisfy the sentinel check.
+printf '# T\n\n## Fake\342\201\240 Heading\n\nbody\n' > "$W/mark.md"
+"$S/render.sh" "$W/mark.md" -o "$W/mark.html" >/dev/null
+chk "stray U+2060 stripped from the payload" \
+  "$(payload "$W/mark.html" | grep -cF "Fake$(printf '\342\201\240') Heading")" "0"
+chk "exactly one sentinel in the payload" \
+  "$(payload "$W/mark.html" | grep -oF "$(printf '\342\201\240')" | wc -l | tr -d ' ')" "1"
+
+# F4: diag banners suppressed when the structural check passes.
+chk "diag banners gated on the sentinel" \
+  "$(grep -c 'if (planH2) return;' "$S/template.html")" "1"
+
+# F5: tasks nested in a list still yield a graph.
+# The CALL SITE, pinned exact -- not a bare name count. Task 14's index comment
+# names planRegionHeadings in prose, so `grep -c planRegionHeadings` is already
+# satisfied by a comment and stays satisfied if the collector is reverted to the
+# sibling walk. The declaration itself is pinned, anchored, by "graph scoped by
+# plan region" above; this is the line that makes the DAG actually use it.
+chk "plan tasks scoped by document position" \
+  "$(grep -cF 'tasks = planRegionHeadings().filter(function(h){' "$S/template.html")" "1"
+
+# F6: the pending predicate must be specific.
+chk "pending check asserts .callout.pending" \
+  "$(grep -c 'querySelector(".callout.pending")' "$S/template.html")" "1"
+# Position is load-bearing and no presence grep can see it: .callout.pending
+# does not exist until the callout section converts the blockquote, so the same
+# predicate placed before that section is false on every pending brief and
+# banners "Pending notice missing" on the gate-1 artifact every single time.
+callouts_ln=$(grep -n 'guard("decorate: callouts"' "$S/template.html" | head -1 | cut -d: -f1)
+pending_ln=$(grep -n 'querySelector(".callout.pending")' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$callouts_ln" ] && [ -n "$pending_ln" ] && [ "$callouts_ln" -lt "$pending_ln" ]; then
+  ok "the pending check runs after the callout conversion that creates .callout.pending"
+else
+  no "the pending check runs after the callout conversion that creates .callout.pending" \
+     "callouts=[${callouts_ln:-missing}] pending=[${pending_ln:-missing}]"
+fi
+
+# The new banner is a top-level section and gets a guard like every other one;
+# a bare statement here throws uncaught and kills everything after it.
+chk "guarded: guard(\"dag: no tasks banner\"" \
+  "$(grep -cF 'guard("dag: no tasks banner"' "$S/template.html")" "1"
+# An empty `tasks` has two causes -- no task headings in the source, or a
+# caught collect guard -- and only the first is a fact about the document.
+# Without this gate the banner makes a confident false claim about the
+# reader's source while the headings sit in view below it.
+chk "the no-tasks banner is gated on the collect guard having actually run" \
+  "$(grep -cF 'planH2 && collected &&' "$S/template.html")" "1"
 
 echo
 echo "shell: $pass passed, $fail failed"
