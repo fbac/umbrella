@@ -1823,6 +1823,12 @@ Expected: every assertion in the three new blocks FAILs — all three blocks are
 
 - [ ] **Step 3: Add the dependency graph builder**
 
+> The snippet below has been **regenerated from the shipped template by Task 15**, whose
+> Step 3d edits land inside this mirrored slice. It therefore already carries
+> `planRegionHeadings`, the `collected` flag and the "No tasks found" banner. That is
+> `mirror_chk` working as intended — an un-regenerated snippet here would be a stale
+> instruction, and nothing else in the suite can see that. See Task 15, Step 3g.
+
 Insert inside the IIFE, immediately after the `sectionNodes` definition and before the walk-tag badges section:
 
 ```js
@@ -2992,19 +2998,41 @@ printf '# T\n\n## Fake\342\201\240 Heading\n\nbody\n' > "$W/mark.md"
 chk "stray U+2060 stripped from the payload" \
   "$(payload "$W/mark.html" | grep -cF "Fake$(printf '\342\201\240') Heading")" "0"
 chk "exactly one sentinel in the payload" \
-  "$(payload "$W/mark.html" | grep -c "Plan$(printf '\342\201\240')")" "1"
+  "$(payload "$W/mark.html" | grep -oF "$(printf '\342\201\240')" | wc -l | tr -d ' ')" "1"
+# The payload check above pins render.sh's half. This pins the page's half:
+# taking [0] reinstates "the first marked h2 wins", which IS the finding, and
+# reverting to it passed every other assertion in this suite.
+chk "the page requires exactly one marked h2, not the first one" \
+  "$(grep -cF 'var planH2 = marked_h2s.length === 1 ? marked_h2s[0] : null;' "$S/template.html")" "1"
 
 # F4: diag banners suppressed when the structural check passes.
 chk "diag banners gated on the sentinel" \
   "$(grep -c 'if (planH2) return;' "$S/template.html")" "1"
 
 # F5: tasks nested in a list still yield a graph.
+# The CALL SITE, pinned exact -- not a bare name count. Task 14's index comment
+# names planRegionHeadings in prose, so `grep -c planRegionHeadings` is already
+# satisfied by a comment and stays satisfied if the collector is reverted to the
+# sibling walk. The declaration itself is pinned, anchored, by "graph scoped by
+# plan region" above; this is the line that makes the DAG actually use it.
 chk "plan tasks scoped by document position" \
-  "$(grep -c 'planRegionHeadings' "$S/template.html")" "2"
+  "$(grep -cF 'tasks = planRegionHeadings().filter(function(h){' "$S/template.html")" "1"
 
 # F6: the pending predicate must be specific.
 chk "pending check asserts .callout.pending" \
   "$(grep -c 'querySelector(".callout.pending")' "$S/template.html")" "1"
+# Position is load-bearing and no presence grep can see it: .callout.pending
+# does not exist until the callout section converts the blockquote, so the same
+# predicate placed before that section is false on every pending brief and
+# banners "Pending notice missing" on the gate-1 artifact every single time.
+callouts_ln=$(grep -n 'guard("decorate: callouts"' "$S/template.html" | head -1 | cut -d: -f1)
+pending_ln=$(grep -n 'querySelector(".callout.pending")' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$callouts_ln" ] && [ -n "$pending_ln" ] && [ "$callouts_ln" -lt "$pending_ln" ]; then
+  ok "the pending check runs after the callout conversion that creates .callout.pending"
+else
+  no "the pending check runs after the callout conversion that creates .callout.pending" \
+     "callouts=[${callouts_ln:-missing}] pending=[${pending_ln:-missing}]"
+fi
 
 # The new banner is a top-level section and gets a guard like every other one;
 # a bare statement here throws uncaught and kills everything after it.
@@ -3016,12 +3044,18 @@ chk "guarded: guard(\"dag: no tasks banner\"" \
 # reader's source while the headings sit in view below it.
 chk "the no-tasks banner is gated on the collect guard having actually run" \
   "$(grep -cF 'planH2 && collected &&' "$S/template.html")" "1"
+chk "and that flag is set inside the collect callback, not beside it" \
+  "$(grep -c '^    collected = true;$' "$S/template.html")" "1"
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: **seven** FAILs. Two of the nine new assertions already pass against the unfixed code — `front matter body retained` (the old `has_front_matter` leaves the block in place, so the task heading survives anyway) and `exactly one sentinel in the payload` (the spec's stray U+2060 heading is not named "Plan", so the count is 1 either way). `front matter body retained` begins exercising real behaviour after Step 3a, and `exactly one sentinel in the payload` after Step 3b, exit 1.
+Expected: **eleven** FAILs — every assertion in the block above except `front matter body retained`, exit 1.
+
+Measured, not predicted. The earlier draft of this step said seven, which was correct for the earlier draft of Step 1; three assertions were added to it after mutation testing, and one was rewritten. The rewritten one matters: `exactly one sentinel in the payload` was `grep -c "Plan<U+2060>"`, and that counts **1 both before and after the fix** — the fixture's stray marker sits in `Fake<U+2060> Heading`, not in a heading named Plan, so the label's guarantee was never checked on the fixture it runs on. Counting every sentinel character is what the label says and is what discriminates: 2 before the strip, 1 after.
+
+`front matter body retained` is the one assertion that legitimately passes here: the old `has_front_matter` leaves the block in place, so the task heading survives anyway. It is not vacuous — it guards the opposite direction, and it fails if `skip_preamble` is made to consume past the closing `---` (verified by mutation).
 
 - [ ] **Step 3a: Fix findings 1 and 2 — front-matter detection**
 
@@ -3235,15 +3269,39 @@ chk "tasks attach by document position" \
   "$(grep -c 'DOCUMENT_POSITION_FOLLOWING' "$S/template.html")" "2"
 ```
 
+- [ ] **Step 3g: Regenerate Task 12's mirrored snippet, and record the `mq` decision**
+
+Step 3d edits code that sits **inside Task 12's mirrored slice** (`DAG_HEAD` to the
+walk-tag badges header), so `mirror_chk "Task 12's plan snippet is byte-identical to
+the shipped template"` fails until that fence is regenerated. Regenerate it *from*
+`assets/change-brief/template.html` — do not hand-edit it — exactly as Task 14 did for
+Task 13's stop marker. This is the mechanism working as designed: an un-regenerated
+snippet is a stale instruction, which is what `mirror_chk` exists to catch.
+
+Separately, `var mq = window.matchMedia(...)` is a top-level statement outside any
+`guard()`. It has now been assessed twice and is deliberately left alone; record the
+reasoning at the site so a third review does not re-open it:
+
+```js
+  /* Deliberately NOT wrapped in guard(), assessed twice and recorded here so it
+     is not re-litigated a third time. This file already hard-requires
+     TextDecoder, dataset, atob and replaceWith, every one of them newer than
+     matchMedia, so the set of engines carrying those and not this one is empty
+     -- a guard here would be unreachable code paying a real cost in noise. The
+     genuine compatibility risk in this area is mq.addEventListener, which
+     Safari did not ship until 14, and that call IS guarded below. */
+```
+
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: all seven known-finding assertions PASS and no earlier assertion regresses. Exit 0.
+Expected: all twelve known-finding assertions PASS and no earlier assertion regresses.
+The suite reports **261 passed, 0 failed**. Exit 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add assets/change-brief/render.sh assets/change-brief/template.html assets/change-brief/tests/render_test.sh
+git add assets/change-brief/render.sh assets/change-brief/template.html assets/change-brief/tests/render_test.sh docs/plans/2026-07-30-visual-change-briefs.md
 git commit -m "fix(change-brief): close the six known findings from spec review"
 ```
 

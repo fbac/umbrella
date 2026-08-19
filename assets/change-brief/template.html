@@ -260,6 +260,13 @@ __BRIEF_B64__
 
   /* ---------- theme (pure CSS switch, no diagram re-render) ---------- */
   var root = document.documentElement;
+  /* Deliberately NOT wrapped in guard(), assessed twice and recorded here so it
+     is not re-litigated a third time. This file already hard-requires
+     TextDecoder, dataset, atob and replaceWith, every one of them newer than
+     matchMedia, so the set of engines carrying those and not this one is empty
+     -- a guard here would be unreachable code paying a real cost in noise. The
+     genuine compatibility risk in this area is mq.addEventListener, which
+     Safari did not ship until 14, and that call IS guarded below. */
   var mq = window.matchMedia("(prefers-color-scheme: dark)");
   var THEMES = ["auto", "light", "dark"];
   var pref = "auto";
