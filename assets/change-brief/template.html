@@ -760,31 +760,67 @@ __BRIEF_B64__
      1. Racing only `render` is not enough. `parse` goes through the same queue,
         so an un-raced parse is a path along which our own chain never terminates.
         Both are raced.
-     2. Once one box has timed out, no later box can succeed. Waiting the full
-        timeout for each of them is pure dead time — four boxes would be 32s of it
-        — so the first timeout latches `wedged` and every remaining box fails
-        immediately. One timeout per document, not one per box.
+     2. Once one box has timed out, no later box can succeed — but only if the
+        queue really is wedged. A timeout is also what a legitimately slow render
+        looks like from outside, and there the queue is healthy and every later
+        box would have rendered fine. Latching unconditionally on the first
+        timeout turns that per-box false positive into a document-wide one:
+        measured against a box that completes at 9s, an unconditional latch gave
+        4 error cards and 0 of 4 diagrams in both themes, where doing nothing
+        would have cost 1 error card and kept 3 good diagrams.
+
+        So the first timeout does not latch, it PROBES: the next box is attempted
+        on a short budget instead of the full one. If it renders, the queue was
+        never wedged, the first timeout was a false positive, and full budgets
+        resume for the rest of the document. If it times out too, the queue is
+        genuinely pinned and `wedged` latches, short-circuiting every remaining
+        box. Costs 2s on top of a real wedge; saves the whole document on a false
+        positive. Waiting a full budget per box instead would be 32s of dead time
+        on a four-box document.
+
+        The probe is safe against the mechanics it is diagnosing. On a real wedge
+        its parse simply queues behind the abandoned task and never runs, so it
+        times out on its own budget rather than hanging the accounting; adding one
+        more pending task to an already-pinned loop changes nothing observable. On
+        a false positive the slow task is still draining, and the probe runs the
+        moment it finishes — which is why the probe budget is also the window
+        within which a false positive can still be rescued.
 
      8000ms is chosen against measurement. A typical diagram in this format
      settles in 9-32ms and a deliberately oversized 121-node flowchart, far larger
      than any brief produces, in 217ms; 8s is ~36x that worst case, so a slow or
-     throttled machine cannot false-positive and destroy a good diagram. Note this
-     is a layout budget, not a network one: a payload can put a remote url() into
-     the emitted stylesheet only through the config keys the `secure` list below
-     pins, and a font or image fetch does not block the render promise anyway. */
+     throttled machine cannot false-positive and destroy a good diagram. 2000ms
+     for the probe is the same reasoning at a tighter ratio — ~9x that oversized
+     worst case — because it is pure dead time on a real wedge and only has to be
+     long enough to tell a working queue from a pinned one. Note both are layout
+     budgets, not network ones: a payload can put a remote url() into the emitted
+     stylesheet only through the config keys the `secure` list below pins, and a
+     font or image fetch does not block the render promise anyway. */
   var wedged = false;
+  var probing = false;
   var RENDER_TIMEOUT_MS = 8000;
+  var PROBE_TIMEOUT_MS = 2000;
   function raceQueue(p, what){
+    /* Fixed at call time: the budget this attempt is judged on cannot change
+       underneath it if another box flips the flag. */
+    var budget = probing ? PROBE_TIMEOUT_MS : RENDER_TIMEOUT_MS;
     return new Promise(function(resolve, reject){
       /* Rejects, never resolves. A timeout that resolved would hand the success
          branch an undefined result and leave an empty slot behind with no error
          card and no console line — the silent failure this section refuses. */
       var timer = setTimeout(function(){
-        wedged = true;
-        reject(new Error(what + " timed out after " + RENDER_TIMEOUT_MS + "ms"));
-      }, RENDER_TIMEOUT_MS);
+        if (probing) wedged = true;   /* the probe timed out too: really pinned */
+        else probing = true;          /* first timeout: diagnose before latching */
+        reject(new Error(what + " timed out after " + budget + "ms"));
+      }, budget);
       Promise.resolve(p).then(
-        function(v){ clearTimeout(timer); resolve(v); },
+        function(v){
+          clearTimeout(timer);
+          /* Anything settling proves the queue drains, which retires the probe
+             and restores full budgets for the rest of the document. */
+          probing = false;
+          resolve(v);
+        },
         function(e){ clearTimeout(timer); reject(e); }
       );
     });

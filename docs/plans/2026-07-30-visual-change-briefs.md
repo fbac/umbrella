@@ -2058,8 +2058,8 @@ Mermaid v10 is async-only: the v8/v9 callback form produces no output and no exc
   @font-face{font-family:pwn;src:url(https://evil.example.invalid/p.woff2);}
   ```
   It needs neither `htmlLabels` nor a `<foreignObject>`, which is exactly why it survived a round that was framed as "are these two routes closed?" rather than "what is the class?".
-- `fontFamily` and `altFontFamily` reach the same stylesheet but land inside a `:root { }` block, and the brace-balance check stops them escaping it — verified by attempting exactly that escape. They are pinned anyway, because they are the same sink.
-- **What the class is, checked rather than assumed.** The emitted `<style>` is assembled from exactly three config keys — `themeCSS`, `fontFamily`, `altFontFamily` — plus `themeVariables.*`, which is charset-restricted to `/^[\d "#%(),.;A-Za-z]+$/` and so cannot spell `:` or `/`. A battery across flowchart, sequence, ER, C4, requirement, sankey, gantt, journey and gitGraph found nothing else reaching a stylesheet. Three keys do put payload text into *attributes* — `er.stroke` and `sankey.linkColor` as `stroke="url(remote)"`, and the diagram-specific `*FontFamily` keys as `font-family="…"` — but at-rules are inert in an attribute value and browsers do not fetch external SVG paint servers, so none is a beacon. Directives were also checked for leaking between fences and between passes: they do not.
+- `fontFamily` reaches the same stylesheet but lands inside a `:root { }` block, and the brace-balance check stops it escaping — verified by attempting exactly that escape. It is pinned anyway, because it is the same sink. **`altFontFamily` is a different case and should not be mistaken for a live control:** it is absent from mermaid's default config, so it is not in the key allowlist at all and every directive carrying it is deleted before the `secure` list is ever consulted. Pinning it is harmless belt-and-braces against a future default gaining the key; nothing depends on it today.
+- **What the class is, checked rather than assumed.** The emitted `<style>` is assembled from exactly three config keys — `themeCSS`, `fontFamily`, `altFontFamily` — plus `themeVariables.*`, which is charset-restricted to `/^[\d "#%(),.;A-Za-z]+$/` and so cannot spell `:` or `/`. A battery across flowchart, sequence, ER, C4, requirement, sankey, gantt, journey and gitGraph found nothing else reaching a stylesheet. Six keys do put payload text into *attributes* — `sankey.linkColor` and `er.stroke` as `stroke="url(remote)"`, `c4.person_bg_color` as `rect[fill]`, `c4.person_border_color` as `rect[stroke]`, the diagram-specific `*FontFamily` keys as `font-family="…"`, `sequence.messageAlign` as `text[text-anchor]`, and `gantt.useWidth` as `svg[viewBox]` — but at-rules are inert in an attribute value and browsers do not fetch external SVG paint servers, so none is a beacon. Directives were also checked for leaking between fences and between passes: they do not.
 - Pinning `"htmlLabels"`, `"theme"`, `"themeCSS"`, `"fontFamily"` and `"altFontFamily"` closes every route found: zero `<img>`, zero `<foreignObject>`, zero live `<style>` carrying the payload host, with every diagram still rendering in both themes at the correct per-theme colours (`#333` light, `#ccc` dark — confirming the list constrains directives only, not `initialize`'s own config, and that `fontFamily:"inherit"` still applies). `"theme"` earns its place independently: a `%%{init:{"theme":"dark"}}%%` fence makes the **light** slot paint with dark-theme colours, and print forces `.d-light`.
 
 **Inferred, and still unconfirmed: only the fetch itself** — that the browser, having been handed a live `<img src>` pointing at a payload-supplied URL, then requests it. Everything up to and including that element in the document is observed; the request is not.
@@ -2077,12 +2077,12 @@ That is not a hypothetical waiting on a future change: until the `secure` list l
 Three things follow, and each is load-bearing:
 
 - **Race `parse` as well as `render`.** They share the queue, so an un-raced `parse` is a path along which our own chain never terminates. Racing only `render`, as an earlier version did, converts a silent stall into one error card *plus a still-stalled document*: measured end-to-end on real `render.sh` output with a genuine mermaid stall, one error card at 8.0s and then `light=0 dark=0`, marker never set, **still hung at 62s**.
-- **Latch the wedge and short-circuit.** Once one box times out no later box can succeed, so waiting the full timeout for each is dead time — four boxes would be 32s. The first timeout sets a flag and every remaining box gets its error card immediately. One timeout per document, not one per box: the same four-diagram brief now settles at **8.0s** with four honest error cards.
+- **Probe before latching, then short-circuit.** "No later box can succeed" is true of a pinned queue and false of the other thing a timeout looks like from outside: a legitimately slow render, where the queue is healthy and every later box would have been fine. Latching on the first timeout turns that per-box false positive into a document-wide one — measured against a box completing at 9s under the real 8s budget, an unconditional latch produced **four error cards and 0 of 4 diagrams in both themes**, where leaving it alone would have cost one card and kept three diagrams. So the first timeout does not latch, it probes: the next box is attempted on a 2s budget. If it renders, the queue was never wedged and full budgets resume — measured, **one error card and 3 of 4 diagrams in both themes at 9.2s**. If it times out too, the queue really is pinned and the latch fires, short-circuiting the remainder — measured on a genuine mermaid wedge, **10.0s** with the probe box reporting `Parse timed out after 2000ms`, which is the queue mechanic showing through: its parse never ran because it was sitting behind the abandoned task. The probe costs 2s on a real wedge and saves the document on a false positive; waiting a full budget per box instead would be 32s of dead time on four boxes.
 - **Interleave the two theme passes per box** — light then dark for box 0, then box 1, and so on — rather than sweeping all boxes in light and then all in dark. With the wedge permanent this is not a micro-optimisation. Under two sweeping passes a stall partway through leaves every earlier box holding a light render and no dark one, and in dark theme the CSS hides `.d-light` and finds no `.d-dark`, so **a dark-theme reader gets blank cards for diagrams that rendered perfectly**. Measured on a four-diagram brief stalling at the third fence: sweeping passes give `light=2 dark=0`, interleaved gives `light=2 dark=2`.
 
 Interleaving was **declined in an earlier round on a reason that was simply wrong** — that the race already fixed the stall outright, so interleaving would only shrink the blast radius. The race does not fix the stall, so blast radius is the whole question. It was then weighed on its own merits and adopted: it costs one extra `mermaid.initialize` per box per theme, measured at 0.47ms a call (about 5ms on a six-diagram brief); it does not affect print, which forces `.d-light` and sees the same set of light renders either way; and it does not affect walk case 11's duplicate-id question, because a fragment reference resolves to the first match in document order, which is box 0's *light* marker under both orderings.
 
-Belt and braces on top of all three: a run-level deadline marks the run regardless, so `data-diagrams` means "the run ended" on every path. The marker carries four values — `done`, `failed`, `stalled`, `unavailable` — because four outcomes genuinely differ, and a harness that cannot tell them apart is back in the ambiguity the marker exists to remove.
+Belt and braces on top of all three: a run-level deadline marks the run regardless, so `data-diagrams` is always set and a harness waiting on it can never hang. The marker carries four values — `done`, `failed`, `stalled`, `unavailable` — because four outcomes genuinely differ. Three of them mean the run ended; **`stalled` does not.** It means only "had not ended within 20s", which is a verdict about the deadline rather than about the run: because the first write wins and is never overwritten, a document whose renders eventually complete after the deadline keeps `stalled` while going on to show every diagram. That is deliberate — a marker that flapped from `stalled` to `done` would be worse than one that is occasionally pessimistic — but it means `stalled` should be read as "gave up waiting", not as "failed".
 
 **Files:**
 - Modify: `assets/change-brief/template.html`
@@ -2137,11 +2137,34 @@ chk "render is raced" \
 # line -- the exact silence the race exists to remove.
 chk "the timeout rejects rather than resolving" \
   "$(grep -cF 'reject(new Error(what + " timed out after "' "$S/template.html")" "1"
-# Once one box times out the queue is pinned and no later box can succeed, so
-# waiting the full timeout for each of them is dead time -- four boxes would be
-# 32s of it. The latch is what makes it one timeout per document.
-chk "the first timeout latches the wedge" \
-  "$(grep -cF 'wedged = true;' "$S/template.html")" "1"
+# A timeout means one of two things and they need opposite responses: a pinned
+# queue, where no later box can succeed and waiting a full budget for each is 32s
+# of dead time on a four-box document; or a legitimately slow render, where the
+# queue is healthy and every later box would have rendered fine. Latching
+# unconditionally turns the second case into a document-wide failure -- measured
+# against a box completing at 9s, an unconditional latch gave 4 error cards and
+# 0 of 4 diagrams, where the pre-latch design cost 1 card and kept 3 diagrams.
+# So the first timeout probes and only the second latches. Assert the ORDER of
+# those two effects, not merely that both strings exist: an assignment that
+# latched first and probed second would satisfy any presence grep while
+# reinstating exactly the behaviour this replaced.
+chk "the first timeout probes rather than latching" \
+  "$(grep -cF 'else probing = true;          /* first timeout: diagnose before latching */' "$S/template.html")" "1"
+chk "the wedge latches only when the probe itself times out" \
+  "$(grep -cF 'if (probing) wedged = true;   /* the probe timed out too: really pinned */' "$S/template.html")" "1"
+# The probe has to be retired by ANY settle, or one false positive would leave
+# every later box on the short budget for the rest of the document.
+# Pinned by its indent, which is what separates the assignment inside the settle
+# handler from the `var probing = false;` declaration at section scope.
+chk "anything settling retires the probe and restores full budgets" \
+  "$(grep -cF '          probing = false;' "$S/template.html")" "1"
+chk "the probe runs on its own shorter budget" \
+  "$(grep -cF 'var budget = probing ? PROBE_TIMEOUT_MS : RENDER_TIMEOUT_MS;' "$S/template.html")" "1"
+# ...and the budget is read once, at call time. Read inside the timer instead,
+# a flag flipped by another box would change the budget an in-flight attempt is
+# judged on, which is unreproducible by construction.
+chk "the budget is fixed at call time, not read from the flag when the timer fires" \
+  "$(grep -cF '}, budget);' "$S/template.html")" "1"
 chk "a wedged queue fails the remaining boxes instead of waiting for each" \
   "$(grep -c 'if (wedged) throw new Error' "$S/template.html")" "1"
 # Both themes for one box before moving to the next. With the wedge permanent,
@@ -2236,7 +2259,7 @@ mirror_chk "Task 13's plan snippet is byte-identical to the shipped template" \
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: twenty-eight FAILs, exit 1. (Twenty-eight of the twenty-nine; "no v8/v9 callback form" expects a count of zero and so passes before the renderer exists at all.)
+Expected: thirty-two FAILs, exit 1. (Thirty-two of the thirty-three; "no v8/v9 callback form" expects a count of zero and so passes before the renderer exists at all.)
 
 - [ ] **Step 3: Add the dual-pass renderer**
 
@@ -2257,31 +2280,67 @@ Append inside the IIFE, after the per-task progress section:
      1. Racing only `render` is not enough. `parse` goes through the same queue,
         so an un-raced parse is a path along which our own chain never terminates.
         Both are raced.
-     2. Once one box has timed out, no later box can succeed. Waiting the full
-        timeout for each of them is pure dead time — four boxes would be 32s of it
-        — so the first timeout latches `wedged` and every remaining box fails
-        immediately. One timeout per document, not one per box.
+     2. Once one box has timed out, no later box can succeed — but only if the
+        queue really is wedged. A timeout is also what a legitimately slow render
+        looks like from outside, and there the queue is healthy and every later
+        box would have rendered fine. Latching unconditionally on the first
+        timeout turns that per-box false positive into a document-wide one:
+        measured against a box that completes at 9s, an unconditional latch gave
+        4 error cards and 0 of 4 diagrams in both themes, where doing nothing
+        would have cost 1 error card and kept 3 good diagrams.
+
+        So the first timeout does not latch, it PROBES: the next box is attempted
+        on a short budget instead of the full one. If it renders, the queue was
+        never wedged, the first timeout was a false positive, and full budgets
+        resume for the rest of the document. If it times out too, the queue is
+        genuinely pinned and `wedged` latches, short-circuiting every remaining
+        box. Costs 2s on top of a real wedge; saves the whole document on a false
+        positive. Waiting a full budget per box instead would be 32s of dead time
+        on a four-box document.
+
+        The probe is safe against the mechanics it is diagnosing. On a real wedge
+        its parse simply queues behind the abandoned task and never runs, so it
+        times out on its own budget rather than hanging the accounting; adding one
+        more pending task to an already-pinned loop changes nothing observable. On
+        a false positive the slow task is still draining, and the probe runs the
+        moment it finishes — which is why the probe budget is also the window
+        within which a false positive can still be rescued.
 
      8000ms is chosen against measurement. A typical diagram in this format
      settles in 9-32ms and a deliberately oversized 121-node flowchart, far larger
      than any brief produces, in 217ms; 8s is ~36x that worst case, so a slow or
-     throttled machine cannot false-positive and destroy a good diagram. Note this
-     is a layout budget, not a network one: a payload can put a remote url() into
-     the emitted stylesheet only through the config keys the `secure` list below
-     pins, and a font or image fetch does not block the render promise anyway. */
+     throttled machine cannot false-positive and destroy a good diagram. 2000ms
+     for the probe is the same reasoning at a tighter ratio — ~9x that oversized
+     worst case — because it is pure dead time on a real wedge and only has to be
+     long enough to tell a working queue from a pinned one. Note both are layout
+     budgets, not network ones: a payload can put a remote url() into the emitted
+     stylesheet only through the config keys the `secure` list below pins, and a
+     font or image fetch does not block the render promise anyway. */
   var wedged = false;
+  var probing = false;
   var RENDER_TIMEOUT_MS = 8000;
+  var PROBE_TIMEOUT_MS = 2000;
   function raceQueue(p, what){
+    /* Fixed at call time: the budget this attempt is judged on cannot change
+       underneath it if another box flips the flag. */
+    var budget = probing ? PROBE_TIMEOUT_MS : RENDER_TIMEOUT_MS;
     return new Promise(function(resolve, reject){
       /* Rejects, never resolves. A timeout that resolved would hand the success
          branch an undefined result and leave an empty slot behind with no error
          card and no console line — the silent failure this section refuses. */
       var timer = setTimeout(function(){
-        wedged = true;
-        reject(new Error(what + " timed out after " + RENDER_TIMEOUT_MS + "ms"));
-      }, RENDER_TIMEOUT_MS);
+        if (probing) wedged = true;   /* the probe timed out too: really pinned */
+        else probing = true;          /* first timeout: diagnose before latching */
+        reject(new Error(what + " timed out after " + budget + "ms"));
+      }, budget);
       Promise.resolve(p).then(
-        function(v){ clearTimeout(timer); resolve(v); },
+        function(v){
+          clearTimeout(timer);
+          /* Anything settling proves the queue drains, which retires the probe
+             and restores full budgets for the rest of the document. */
+          probing = false;
+          resolve(v);
+        },
         function(e){ clearTimeout(timer); reject(e); }
       );
     });
@@ -2450,7 +2509,7 @@ Append inside the IIFE, after the per-task progress section:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: all twenty-nine new assertions PASS and the suite reports 224 passed, 0 failed. Visual confirmation is **walk cases 2, 4, 5, 10 and 11** — the static test proves the API contract, not that diagrams are legible.
+Expected: all thirty-three new assertions PASS and the suite reports 228 passed, 0 failed. Visual confirmation is **walk cases 2, 4, 5, 10 and 11** — the static test proves the API contract, not that diagrams are legible.
 
 - [ ] **Step 5: Commit**
 

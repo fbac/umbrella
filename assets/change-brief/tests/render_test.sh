@@ -931,11 +931,34 @@ chk "render is raced" \
 # line -- the exact silence the race exists to remove.
 chk "the timeout rejects rather than resolving" \
   "$(grep -cF 'reject(new Error(what + " timed out after "' "$S/template.html")" "1"
-# Once one box times out the queue is pinned and no later box can succeed, so
-# waiting the full timeout for each of them is dead time -- four boxes would be
-# 32s of it. The latch is what makes it one timeout per document.
-chk "the first timeout latches the wedge" \
-  "$(grep -cF 'wedged = true;' "$S/template.html")" "1"
+# A timeout means one of two things and they need opposite responses: a pinned
+# queue, where no later box can succeed and waiting a full budget for each is 32s
+# of dead time on a four-box document; or a legitimately slow render, where the
+# queue is healthy and every later box would have rendered fine. Latching
+# unconditionally turns the second case into a document-wide failure -- measured
+# against a box completing at 9s, an unconditional latch gave 4 error cards and
+# 0 of 4 diagrams, where the pre-latch design cost 1 card and kept 3 diagrams.
+# So the first timeout probes and only the second latches. Assert the ORDER of
+# those two effects, not merely that both strings exist: an assignment that
+# latched first and probed second would satisfy any presence grep while
+# reinstating exactly the behaviour this replaced.
+chk "the first timeout probes rather than latching" \
+  "$(grep -cF 'else probing = true;          /* first timeout: diagnose before latching */' "$S/template.html")" "1"
+chk "the wedge latches only when the probe itself times out" \
+  "$(grep -cF 'if (probing) wedged = true;   /* the probe timed out too: really pinned */' "$S/template.html")" "1"
+# The probe has to be retired by ANY settle, or one false positive would leave
+# every later box on the short budget for the rest of the document.
+# Pinned by its indent, which is what separates the assignment inside the settle
+# handler from the `var probing = false;` declaration at section scope.
+chk "anything settling retires the probe and restores full budgets" \
+  "$(grep -cF '          probing = false;' "$S/template.html")" "1"
+chk "the probe runs on its own shorter budget" \
+  "$(grep -cF 'var budget = probing ? PROBE_TIMEOUT_MS : RENDER_TIMEOUT_MS;' "$S/template.html")" "1"
+# ...and the budget is read once, at call time. Read inside the timer instead,
+# a flag flipped by another box would change the budget an in-flight attempt is
+# judged on, which is unreproducible by construction.
+chk "the budget is fixed at call time, not read from the flag when the timer fires" \
+  "$(grep -cF '}, budget);' "$S/template.html")" "1"
 chk "a wedged queue fails the remaining boxes instead of waiting for each" \
   "$(grep -c 'if (wedged) throw new Error' "$S/template.html")" "1"
 # Both themes for one box before moving to the next. With the wedge permanent,
