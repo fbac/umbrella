@@ -2552,16 +2552,43 @@ chk "mobile sidebar toggle wired" "$(grep -c 'sbToggle' "$S/template.html")" "2"
 # the declaration after it has been re-nested, which is the regression it names.
 chk "slug's id map has no inherited keys, so a heading named constructor cannot alias one" \
   "$(grep -c '^  var used = Object.create(null);$' "$S/template.html")" "1"
-# The strongest of the four, and deliberately one assertion rather than three:
-# as a fixed string it pins the retry loop AND both namespace clauses together,
-# so removing or weakening any of them fails here. Separate greps for
-# getElementById(id) and the mmd- pattern would raise the count without
-# widening what is caught.
-chk "slug retries until the id is free, against its own output, the document as it stands, and the diagram box-id namespace" \
-  "$(grep -cF 'while (used[id] || document.getElementById(id) || /^(?:d|i)?mmd-\d+$/.test(id)) {' "$S/template.html")" "1"
-# Presence pin, not a proof of termination: no grep can see that this loop ends.
-# It is here because the failure it guards is a hung page rather than a wrong
-# id, and jsdom is where termination is actually demonstrated.
+# WHERE the reserved-family test lives is the whole assertion. As a clause in
+# the loop condition it was non-terminating: a second heading slugging to "mmd"
+# makes the loop propose mmd-2, mmd-3, ... and every candidate re-matches, so
+# the condition is never false. A presence grep for the pattern cannot see that
+# -- it matches either way -- so the two positions are pinned separately.
+chk "the reserved diagram box-id family is rewritten once, against base, before the loop" \
+  "$(grep -cF 'if (/^(?:d|i)?mmd(?:-\d+)?$/.test(base)) base = "h-" + base;' "$S/template.html")" "1"
+# Fixed string, so ADDING a clause back into the condition fails here -- which a
+# grep for the loop's existence would not catch. What the condition is allowed
+# to test is exactly what makes it terminate: `used` and the document are finite
+# and neither grows inside the body.
+chk "the retry condition tests only used and the document, so it is bounded" \
+  "$(grep -cF 'while (used[id] || document.getElementById(id)) {' "$S/template.html")" "1"
+# The general form of the same regression: any pattern applied to a loop
+# candidate can be non-terminating, because the candidate is what the body
+# rewrites. Patterns belong on `base`, which the body never touches. Expects
+# zero, so it passes before the fix and catches a reintroduction after it.
+chk "no pattern is tested against a loop candidate" \
+  "$(grep -c 'test(id)' "$S/template.html")" "0"
+# Order is the claim "before the loop", and only a line comparison tests it: both
+# greps above still pass if the reserve step is moved below the loop, where it
+# would rewrite base after every candidate had already been derived from it.
+res_ln=$(grep -n 'mmd(?:-\\d+)?\$/.test(base)' "$S/template.html" | head -1 | cut -d: -f1)
+loop_ln=$(grep -n 'while (used\[id\] || document.getElementById(id))' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$res_ln" ] && [ -n "$loop_ln" ] && [ "$res_ln" -lt "$loop_ln" ]; then
+  ok "the reserved family is rewritten before the retry loop reads base"
+else
+  no "the reserved family is rewritten before the retry loop reads base" \
+     "reserve=[${res_ln:-missing}] loop=[${loop_ln:-missing}]"
+fi
+# Presence pin, and the honest scope is that no grep can see a loop advance.
+# Termination is not proven here, and it was not proven in jsdom either -- the
+# earlier wording claiming that was wrong, and the loop it described did not in
+# fact terminate. It follows instead from the condition pinned above: `used` and
+# the document are finite, neither grows inside the body, and each turn proposes
+# a distinct candidate, so a free one is reached in at most one turn more than
+# there are ids already taken. This pins the increment that argument assumes.
 chk "the retry loop advances its candidate each turn" \
   "$(grep -cF 'n++; id = base + "-" + n;' "$S/template.html")" "1"
 # Expects zero, so it passes before the fix exists; it is here to catch the old
@@ -2642,7 +2669,7 @@ chk "no section follows the mobile sidebar (retarget the Task 14 mirror stop mar
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: sixteen FAILs, exit 1 — measured against the pre-task template, not counted off the fence. Seventeen assertions are appended and one more is retargeted; two of the seventeen expect a count of zero ("the per-base counter form ... is gone" and "no section follows the mobile sidebar") and so pass before the code they guard exists, and Task 13's retargeted mirror fails here because its new stop marker is not in the template yet.
+Expected: eighteen FAILs, exit 1 — measured against the pre-task template, not counted off the fence. Twenty assertions are appended and one more is retargeted; three of the twenty expect a count of zero ("no pattern is tested against a loop candidate", "the per-base counter form ... is gone" and "no section follows the mobile sidebar") and so pass before the code they guard exists, and Task 13's retargeted mirror fails here because its new stop marker is not in the template yet.
 
 - [ ] **Step 3: Add the index, scrollspy and mobile sidebar**
 
@@ -2681,8 +2708,8 @@ Append inside the IIFE, after the mermaid renderer:
      aside or to the nav instead of to the heading. It does NOT cover the
      diagram ids. This section is synchronous and the diagram chain is still in
      flight, so not one of those 54 exists yet when this runs -- which is also
-     why reserving the mmd- box ids by PATTERN below is a separate clause and
-     not a redundant one.
+     why reserving the mmd- box ids by PATTERN below is a separate step and not
+     a redundant one.
 
      What that leaves open, said plainly instead of papered over: a heading
      slugging onto one of the diagram library's unnamespaced ids (arrowhead,
@@ -2702,8 +2729,35 @@ Append inside the IIFE, after the mermaid renderer:
   var used = Object.create(null);
   function slug(s){
     var base = s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section";
+    /* Reserve the box-id family ONCE, here, against base -- never as a clause
+       in the loop condition below. Tested against a loop CANDIDATE it does not
+       terminate: a second heading slugging to "mmd" makes the loop propose
+       mmd-2, mmd-3, ... and every one of those matches the pattern again, so
+       the condition is never false. That is a pinned main thread rather than a
+       throw, and guard() catches throws -- so there is no error card, no
+       console line, the diagram chain's microtasks never resume, and even the
+       run deadline's setTimeout can never fire. A dead tab, from an untrusted
+       payload, in a file whose premise is that a blank page is worse than no
+       file at all. The punctuation strip makes the trigger wider than it looks:
+       "M.M.D.", "MMD:", "(mmd)" and "m/m/d" all reduce to the same base.
+
+       The rewrite PREFIXES rather than suffixes, and that is what makes it
+       provable in one step: the pattern is anchored at ^ and allows only "d" or
+       "i" before "mmd", so a prefix beginning with any other letter puts base
+       -- and every candidate derived from it -- permanently outside the family,
+       with no reasoning about whether some appended digits might land back in
+       it. The optional -\d+ catches a heading that arrives already numbered,
+       like "mmd 5"; the BARE form has to be reserved too, and that is the part
+       that is easy to get wrong -- leaving base "mmd" alone looks harmless
+       because bare "mmd" is not a box id, but the loop's very next candidate
+       from it is "mmd-2", which is. */
+    if (/^(?:d|i)?mmd(?:-\d+)?$/.test(base)) base = "h-" + base;
+    /* What is left terminates because it is finite: neither `used` nor the
+       document grows inside the body, and each turn proposes a distinct
+       candidate, so a free one is reached in at most one turn more than there
+       are ids already taken. */
     var id = base, n = 1;
-    while (used[id] || document.getElementById(id) || /^(?:d|i)?mmd-\d+$/.test(id)) {
+    while (used[id] || document.getElementById(id)) {
       n++; id = base + "-" + n;
     }
     used[id] = true;
@@ -2819,12 +2873,13 @@ Append inside the IIFE, after the mermaid renderer:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: the suite reports 245 passed, 0 failed — every appended assertion green, plus Task 13's mirror, whose stop marker this task retargets. Visual confirmation is **walk cases 1 and 3**: nothing static here can see the sidebar slide, the chevron rotate, or the scrollspy follow a real scroll.
+Expected: the suite reports 248 passed, 0 failed — every appended assertion green, plus Task 13's mirror, whose stop marker this task retargets. Visual confirmation is **walk cases 1 and 3**: nothing static here can see the sidebar slide, the chevron rotate, or the scrollspy follow a real scroll.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add assets/change-brief/template.html assets/change-brief/tests/render_test.sh
+git add assets/change-brief/template.html assets/change-brief/tests/render_test.sh \
+        docs/plans/2026-07-30-visual-change-briefs.md
 git commit -m "feat(change-brief): collapsible index with region-scoped task grouping, scrollspy"
 ```
 

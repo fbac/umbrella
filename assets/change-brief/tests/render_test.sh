@@ -1064,16 +1064,43 @@ chk "mobile sidebar toggle wired" "$(grep -c 'sbToggle' "$S/template.html")" "2"
 # the declaration after it has been re-nested, which is the regression it names.
 chk "slug's id map has no inherited keys, so a heading named constructor cannot alias one" \
   "$(grep -c '^  var used = Object.create(null);$' "$S/template.html")" "1"
-# The strongest of the four, and deliberately one assertion rather than three:
-# as a fixed string it pins the retry loop AND both namespace clauses together,
-# so removing or weakening any of them fails here. Separate greps for
-# getElementById(id) and the mmd- pattern would raise the count without
-# widening what is caught.
-chk "slug retries until the id is free, against its own output, the document as it stands, and the diagram box-id namespace" \
-  "$(grep -cF 'while (used[id] || document.getElementById(id) || /^(?:d|i)?mmd-\d+$/.test(id)) {' "$S/template.html")" "1"
-# Presence pin, not a proof of termination: no grep can see that this loop ends.
-# It is here because the failure it guards is a hung page rather than a wrong
-# id, and jsdom is where termination is actually demonstrated.
+# WHERE the reserved-family test lives is the whole assertion. As a clause in
+# the loop condition it was non-terminating: a second heading slugging to "mmd"
+# makes the loop propose mmd-2, mmd-3, ... and every candidate re-matches, so
+# the condition is never false. A presence grep for the pattern cannot see that
+# -- it matches either way -- so the two positions are pinned separately.
+chk "the reserved diagram box-id family is rewritten once, against base, before the loop" \
+  "$(grep -cF 'if (/^(?:d|i)?mmd(?:-\d+)?$/.test(base)) base = "h-" + base;' "$S/template.html")" "1"
+# Fixed string, so ADDING a clause back into the condition fails here -- which a
+# grep for the loop's existence would not catch. What the condition is allowed
+# to test is exactly what makes it terminate: `used` and the document are finite
+# and neither grows inside the body.
+chk "the retry condition tests only used and the document, so it is bounded" \
+  "$(grep -cF 'while (used[id] || document.getElementById(id)) {' "$S/template.html")" "1"
+# The general form of the same regression: any pattern applied to a loop
+# candidate can be non-terminating, because the candidate is what the body
+# rewrites. Patterns belong on `base`, which the body never touches. Expects
+# zero, so it passes before the fix and catches a reintroduction after it.
+chk "no pattern is tested against a loop candidate" \
+  "$(grep -c 'test(id)' "$S/template.html")" "0"
+# Order is the claim "before the loop", and only a line comparison tests it: both
+# greps above still pass if the reserve step is moved below the loop, where it
+# would rewrite base after every candidate had already been derived from it.
+res_ln=$(grep -n 'mmd(?:-\\d+)?\$/.test(base)' "$S/template.html" | head -1 | cut -d: -f1)
+loop_ln=$(grep -n 'while (used\[id\] || document.getElementById(id))' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$res_ln" ] && [ -n "$loop_ln" ] && [ "$res_ln" -lt "$loop_ln" ]; then
+  ok "the reserved family is rewritten before the retry loop reads base"
+else
+  no "the reserved family is rewritten before the retry loop reads base" \
+     "reserve=[${res_ln:-missing}] loop=[${loop_ln:-missing}]"
+fi
+# Presence pin, and the honest scope is that no grep can see a loop advance.
+# Termination is not proven here, and it was not proven in jsdom either -- the
+# earlier wording claiming that was wrong, and the loop it described did not in
+# fact terminate. It follows instead from the condition pinned above: `used` and
+# the document are finite, neither grows inside the body, and each turn proposes
+# a distinct candidate, so a free one is reached in at most one turn more than
+# there are ids already taken. This pins the increment that argument assumes.
 chk "the retry loop advances its candidate each turn" \
   "$(grep -cF 'n++; id = base + "-" + n;' "$S/template.html")" "1"
 # Expects zero, so it passes before the fix exists; it is here to catch the old

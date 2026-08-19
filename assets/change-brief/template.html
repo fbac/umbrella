@@ -1017,8 +1017,8 @@ __BRIEF_B64__
      aside or to the nav instead of to the heading. It does NOT cover the
      diagram ids. This section is synchronous and the diagram chain is still in
      flight, so not one of those 54 exists yet when this runs -- which is also
-     why reserving the mmd- box ids by PATTERN below is a separate clause and
-     not a redundant one.
+     why reserving the mmd- box ids by PATTERN below is a separate step and not
+     a redundant one.
 
      What that leaves open, said plainly instead of papered over: a heading
      slugging onto one of the diagram library's unnamespaced ids (arrowhead,
@@ -1038,8 +1038,35 @@ __BRIEF_B64__
   var used = Object.create(null);
   function slug(s){
     var base = s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section";
+    /* Reserve the box-id family ONCE, here, against base -- never as a clause
+       in the loop condition below. Tested against a loop CANDIDATE it does not
+       terminate: a second heading slugging to "mmd" makes the loop propose
+       mmd-2, mmd-3, ... and every one of those matches the pattern again, so
+       the condition is never false. That is a pinned main thread rather than a
+       throw, and guard() catches throws -- so there is no error card, no
+       console line, the diagram chain's microtasks never resume, and even the
+       run deadline's setTimeout can never fire. A dead tab, from an untrusted
+       payload, in a file whose premise is that a blank page is worse than no
+       file at all. The punctuation strip makes the trigger wider than it looks:
+       "M.M.D.", "MMD:", "(mmd)" and "m/m/d" all reduce to the same base.
+
+       The rewrite PREFIXES rather than suffixes, and that is what makes it
+       provable in one step: the pattern is anchored at ^ and allows only "d" or
+       "i" before "mmd", so a prefix beginning with any other letter puts base
+       -- and every candidate derived from it -- permanently outside the family,
+       with no reasoning about whether some appended digits might land back in
+       it. The optional -\d+ catches a heading that arrives already numbered,
+       like "mmd 5"; the BARE form has to be reserved too, and that is the part
+       that is easy to get wrong -- leaving base "mmd" alone looks harmless
+       because bare "mmd" is not a box id, but the loop's very next candidate
+       from it is "mmd-2", which is. */
+    if (/^(?:d|i)?mmd(?:-\d+)?$/.test(base)) base = "h-" + base;
+    /* What is left terminates because it is finite: neither `used` nor the
+       document grows inside the body, and each turn proposes a distinct
+       candidate, so a free one is reached in at most one turn more than there
+       are ids already taken. */
     var id = base, n = 1;
-    while (used[id] || document.getElementById(id) || /^(?:d|i)?mmd-\d+$/.test(id)) {
+    while (used[id] || document.getElementById(id)) {
       n++; id = base + "-" + n;
     }
     used[id] = true;
