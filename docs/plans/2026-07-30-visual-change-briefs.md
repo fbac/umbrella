@@ -2543,12 +2543,80 @@ chk "tasks attach by document position" \
   "$(grep -c 'DOCUMENT_POSITION_FOLLOWING' "$S/template.html")" "1"
 chk "scrollspy observer present" "$(grep -c 'IntersectionObserver' "$S/template.html")" "1"
 chk "mobile sidebar toggle wired" "$(grep -c 'sbToggle' "$S/template.html")" "2"
+
+# Containment for the three sections this task adds, by label, per the doctrine.
+for label in \
+  'guard("index: build"' \
+  'guard("index: scrollspy"' \
+  'guard("index: mobile sidebar"' \
+; do
+  chk "guarded: $label" "$(grep -cF "$label" "$S/template.html")" "1"
+done
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 19 ] && ok "at least 19 top-level sections guarded (floor raised by this task)" \
+  || no "at least 19 top-level sections guarded (floor raised by this task)" "$n"
+
+# Three guards rather than one, and this is the assertion that makes that
+# structural rather than stylistic. The three labels above all still appear if
+# the scrollspy and the sidebar are folded into one guard body, so they prove
+# nothing about containment on their own. What has to hold is that the toggle is
+# wired by a guard that OPENS AFTER the observer statement: an engine without
+# that constructor throws in the scrollspy, and on a narrow viewport the toggle
+# is the only way to reach the index at all, so it must not be reachable from
+# that throw.
+obs_ln=$(grep -n 'new IntersectionObserver' "$S/template.html" | head -1 | cut -d: -f1)
+sbg_ln=$(grep -n 'guard("index: mobile sidebar"' "$S/template.html" | head -1 | cut -d: -f1)
+sbt_ln=$(grep -n 'getElementById("sbToggle")' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$obs_ln" ] && [ -n "$sbg_ln" ] && [ -n "$sbt_ln" ] &&
+   [ "$obs_ln" -lt "$sbg_ln" ] && [ "$sbg_ln" -lt "$sbt_ln" ]; then
+  ok "the sidebar toggle is wired by a guard that opens after the scrollspy observer"
+else
+  no "the sidebar toggle is wired by a guard that opens after the scrollspy observer" \
+     "observer=[${obs_ln:-missing}] sidebar guard=[${sbg_ln:-missing}] toggle=[${sbt_ln:-missing}]"
+fi
+
+# `toc` is read by all three sections. Wrapping its declaration inside the build
+# guard would scope it to that callback and leave the scrollspy and the sidebar
+# throwing a ReferenceError under someone else's label -- the sectionNodes
+# precedent. Anchored at indent 2 for the same reason that one is: an unanchored
+# grep still finds the declaration after it has been moved inside a guard(), so
+# the assertion would keep passing through the exact regression it names.
+chk "the toc handle stays a declaration at IIFE scope, not inside a guard()" \
+  "$(grep -c '^  var toc = document.getElementById("toc");$' "$S/template.html")" "1"
+
+# The scrollspy reads the links out of #toc, which only exist once the build
+# section has appended them. The declarations hoist; the appendChild does not.
+# A scrollspy guard placed first sees an empty nav, registers no links, and the
+# index never highlights -- with nothing on the page or in the console to say
+# so. Presence greps cannot see that; assert the source order it depends on.
+build_ln=$(grep -n 'guard("index: build"' "$S/template.html" | head -1 | cut -d: -f1)
+spy_ln=$(grep -n 'guard("index: scrollspy"' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$build_ln" ] && [ -n "$spy_ln" ] && [ "$build_ln" -lt "$spy_ln" ]; then
+  ok "the scrollspy is wired after the index has been appended"
+else
+  no "the scrollspy is wired after the index has been appended" \
+     "build=[${build_ln:-missing}] scrollspy=[${spy_ln:-missing}]"
+fi
+
+mirror_chk "Task 14's plan snippet is byte-identical to the shipped template" \
+  "$TOC_HEAD" "$S/template.html" "$TOC_HEAD" '})();'
+# NOTE FOR TASK 15: the stop marker above is the IIFE's closing "})();", correct
+# only while the mobile sidebar is the last section in the file. Rather than hand
+# Task 15 the same puzzling hundred-line diff on someone else's mirror that Task
+# 13 handed this one, the invariant that marker rests on is pinned separately
+# here, by a label that says what to do about it. Appending a section after the
+# sidebar fails both checks -- this is the one that names the fix.
+after_sb=$(awk '/^  \/\* ---------- mobile sidebar ---------- \*\/$/ { seen = 1; next }
+                seen && /^  \/\* ---------- / { n++ }
+                END { print n + 0 }' "$S/template.html")
+chk "no section follows the mobile sidebar (retarget the Task 14 mirror stop marker if one must)" \
+  "$after_sb" "0"
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: four FAILs, exit 1.
+Expected: thirteen FAILs, exit 1 — measured, not counted off the fence. Thirteen assertions are appended and one more is retargeted; "no section follows the mobile sidebar" expects a count of zero and so passes before the section it guards exists, and Task 13's retargeted mirror fails here because its new stop marker is not in the template yet.
 
 - [ ] **Step 3: Add the index, scrollspy and mobile sidebar**
 
@@ -2556,6 +2624,11 @@ Append inside the IIFE, after the mermaid renderer:
 
 ```js
   /* ---------- build TOC ---------- */
+  /* These declarations stay at IIFE scope, deliberately outside the guard()
+     below: `toc` is read by all three sections this task adds, and a guard()
+     wrapper would scope the declaration to its own callback, leaving the
+     scrollspy and the sidebar dead with a ReferenceError reported under
+     someone else's label -- the sectionNodes precedent above. */
   var used = {};
   function slug(s){
     var base = s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section";
@@ -2573,78 +2646,94 @@ Append inside the IIFE, after the mermaid renderer:
      identifies the plan region exactly, so use it. */
   var planGroup = null, planKids = null;
 
-  /* h2/h3 only. render.sh flattens every surviving H1 to h4, so there is one
-     hierarchy. Treating H1 as a peer group let a stray H1 between an H2 and
-     its H3s steal those children, emptying the Plan group. */
-  Array.prototype.forEach.call(content.querySelectorAll("h2, h3"), function(h){
-    /* Same fallback as the DAG builder: Task 11's capture is guarded, so the
-       attribute is not guaranteed, and undefined here means "undefined" as an
-       index label. */
-    var text = h.dataset.toc || h.textContent;
-    h.id = slug(text);
-    var a = document.createElement("a");
-    a.href = "#" + h.id;
-    a.textContent = text;
-    a.dataset.target = h.id;
+  /* Three sections, three guards -- not one wrapper around all three. They form
+     a one-way chain: the scrollspy and the sidebar both read what this first
+     section builds, so a failure upstream degrades what is below it while each
+     of those still reports under its own label. One wrapper would make the
+     coupling symmetric instead, and the worst case of that is concrete: a
+     viewer whose engine lacks the observer API the scrollspy needs would also
+     lose the sidebar toggle, and on a narrow viewport that toggle is the only
+     way to reach the index at all. A reader who loses the scrollspy and keeps a
+     working index has lost a highlight; a reader who loses the toggle has lost
+     navigation. */
+  guard("index: build", function(){
+    /* h2/h3 only. render.sh flattens every surviving H1 to h4, so there is one
+       hierarchy. Treating H1 as a peer group let a stray H1 between an H2 and
+       its H3s steal those children, emptying the Plan group. */
+    Array.prototype.forEach.call(content.querySelectorAll("h2, h3"), function(h){
+      /* Same fallback as the DAG builder: Task 11's capture is guarded, so the
+         attribute is not guaranteed, and undefined here means "undefined" as an
+         index label. */
+      var text = h.dataset.toc || h.textContent;
+      h.id = slug(text);
+      var a = document.createElement("a");
+      a.href = "#" + h.id;
+      a.textContent = text;
+      a.dataset.target = h.id;
 
-    if (h.tagName === "H2") {
-      group = document.createElement("li");
-      group.className = "toc-group no-kids";
-      var row = document.createElement("div"); row.className = "toc-l2";
-      var chev = document.createElement("button");
-      chev.className = "chevron";
-      chev.setAttribute("aria-expanded", "true");
-      chev.textContent = "▾";
-      a.className = "lvl2";
-      row.appendChild(chev); row.appendChild(a);
-      kids = document.createElement("ul"); kids.className = "kids";
-      group.appendChild(row); group.appendChild(kids);
-      list.appendChild(group);
-      if (h === planH2) { planGroup = group; planKids = kids; }
-      (function(c, k){
-        c.addEventListener("click", function(){
-          var open = c.getAttribute("aria-expanded") === "true";
-          c.setAttribute("aria-expanded", String(!open));
-          k.hidden = open;
-        });
-      })(chev, kids);
-    } else if (group) {
-      var owner = group, into = kids;
-      if (planKids && /^Task\s+\d+/i.test(text) && planH2 !== h &&
-          (planH2.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING)) {
-        owner = planGroup; into = planKids;
+      if (h.tagName === "H2") {
+        group = document.createElement("li");
+        group.className = "toc-group no-kids";
+        var row = document.createElement("div"); row.className = "toc-l2";
+        var chev = document.createElement("button");
+        chev.className = "chevron";
+        chev.setAttribute("aria-expanded", "true");
+        chev.textContent = "▾";
+        a.className = "lvl2";
+        row.appendChild(chev); row.appendChild(a);
+        kids = document.createElement("ul"); kids.className = "kids";
+        group.appendChild(row); group.appendChild(kids);
+        list.appendChild(group);
+        if (h === planH2) { planGroup = group; planKids = kids; }
+        (function(c, k){
+          c.addEventListener("click", function(){
+            var open = c.getAttribute("aria-expanded") === "true";
+            c.setAttribute("aria-expanded", String(!open));
+            k.hidden = open;
+          });
+        })(chev, kids);
+      } else if (group) {
+        var owner = group, into = kids;
+        if (planKids && /^Task\s+\d+/i.test(text) && planH2 !== h &&
+            (planH2.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+          owner = planGroup; into = planKids;
+        }
+        owner.classList.remove("no-kids");
+        var li = document.createElement("li");
+        li.appendChild(a);
+        into.appendChild(li);
       }
-      owner.classList.remove("no-kids");
-      var li = document.createElement("li");
-      li.appendChild(a);
-      into.appendChild(li);
-    }
+    });
+    toc.appendChild(list);
   });
-  toc.appendChild(list);
 
   /* ---------- scrollspy ---------- */
-  var links = {};
-  Array.prototype.forEach.call(toc.querySelectorAll("a[data-target]"), function(a){ links[a.dataset.target] = a; });
-  var visible = {};
-  var heads = Array.prototype.slice.call(content.querySelectorAll("h2, h3"));
-  var obs = new IntersectionObserver(function(entries){
-    entries.forEach(function(e){ visible[e.target.id] = e.isIntersecting; });
-    var first = heads.filter(function(h){ return visible[h.id]; })[0];
-    Object.keys(links).forEach(function(k){ links[k].classList.remove("active"); });
-    if (first && links[first.id]) links[first.id].classList.add("active");
-  }, { rootMargin:"0px 0px -70% 0px", threshold:0 });
-  heads.forEach(function(h){ obs.observe(h); });
+  guard("index: scrollspy", function(){
+    var links = {};
+    Array.prototype.forEach.call(toc.querySelectorAll("a[data-target]"), function(a){ links[a.dataset.target] = a; });
+    var visible = {};
+    var heads = Array.prototype.slice.call(content.querySelectorAll("h2, h3"));
+    var obs = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){ visible[e.target.id] = e.isIntersecting; });
+      var first = heads.filter(function(h){ return visible[h.id]; })[0];
+      Object.keys(links).forEach(function(k){ links[k].classList.remove("active"); });
+      if (first && links[first.id]) links[first.id].classList.add("active");
+    }, { rootMargin:"0px 0px -70% 0px", threshold:0 });
+    heads.forEach(function(h){ obs.observe(h); });
+  });
 
   /* ---------- mobile sidebar ---------- */
-  var sb = document.getElementById("sidebar");
-  document.getElementById("sbToggle").addEventListener("click", function(){ sb.classList.toggle("open"); });
-  toc.addEventListener("click", function(e){ if (e.target.tagName === "A") sb.classList.remove("open"); });
+  guard("index: mobile sidebar", function(){
+    var sb = document.getElementById("sidebar");
+    document.getElementById("sbToggle").addEventListener("click", function(){ sb.classList.toggle("open"); });
+    toc.addEventListener("click", function(e){ if (e.target.tagName === "A") sb.classList.remove("open"); });
+  });
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: four PASSes, exit 0. Visual confirmation is **walk cases 1 and 3**.
+Expected: all thirteen new assertions PASS and the suite reports 241 passed, 0 failed — including Task 13's mirror, whose stop marker this task retargets. Visual confirmation is **walk cases 1 and 3**: nothing static here can see the sidebar slide, the chevron rotate, or the scrollspy follow a real scroll.
 
 - [ ] **Step 5: Commit**
 

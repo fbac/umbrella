@@ -1040,14 +1040,89 @@ chk "a run-level deadline marks the run even if nothing else does" \
 # edited in the plan more than once, so plan and template can drift and nothing
 # else in this suite can see it.
 #
-# NOTE FOR TASK 14: the stop marker below is the IIFE's closing "})();" only
-# because this renderer is currently the last section in the file. Task 14
-# appends after it and must retarget the stop marker to Task 14's own header
-# comment ('  /* ---------- build TOC ---------- */'). It will fail loudly, not
-# silently, if that is forgotten.
+# Retargeted by Task 14. The stop marker was the IIFE's closing "})();" only
+# because this renderer was then the last section in the file; Task 14 appends
+# the index after it, so the marker is now the index's own header comment.
 MMD_HEAD='  /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */'
+TOC_HEAD='  /* ---------- build TOC ---------- */'
 mirror_chk "Task 13's plan snippet is byte-identical to the shipped template" \
-  "$MMD_HEAD" "$S/template.html" "$MMD_HEAD" '})();'
+  "$MMD_HEAD" "$S/template.html" "$MMD_HEAD" "$TOC_HEAD"
+
+echo "== template JS: index =="
+chk "index built from h2/h3 only" \
+  "$(grep -c 'content.querySelectorAll("h2, h3")' "$S/template.html")" "2"
+chk "tasks attach by document position" \
+  "$(grep -c 'DOCUMENT_POSITION_FOLLOWING' "$S/template.html")" "1"
+chk "scrollspy observer present" "$(grep -c 'IntersectionObserver' "$S/template.html")" "1"
+chk "mobile sidebar toggle wired" "$(grep -c 'sbToggle' "$S/template.html")" "2"
+
+# Containment for the three sections this task adds, by label, per the doctrine.
+for label in \
+  'guard("index: build"' \
+  'guard("index: scrollspy"' \
+  'guard("index: mobile sidebar"' \
+; do
+  chk "guarded: $label" "$(grep -cF "$label" "$S/template.html")" "1"
+done
+n=$(grep -c 'guard("' "$S/template.html")
+[ "$n" -ge 19 ] && ok "at least 19 top-level sections guarded (floor raised by this task)" \
+  || no "at least 19 top-level sections guarded (floor raised by this task)" "$n"
+
+# Three guards rather than one, and this is the assertion that makes that
+# structural rather than stylistic. The three labels above all still appear if
+# the scrollspy and the sidebar are folded into one guard body, so they prove
+# nothing about containment on their own. What has to hold is that the toggle is
+# wired by a guard that OPENS AFTER the observer statement: an engine without
+# that constructor throws in the scrollspy, and on a narrow viewport the toggle
+# is the only way to reach the index at all, so it must not be reachable from
+# that throw.
+obs_ln=$(grep -n 'new IntersectionObserver' "$S/template.html" | head -1 | cut -d: -f1)
+sbg_ln=$(grep -n 'guard("index: mobile sidebar"' "$S/template.html" | head -1 | cut -d: -f1)
+sbt_ln=$(grep -n 'getElementById("sbToggle")' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$obs_ln" ] && [ -n "$sbg_ln" ] && [ -n "$sbt_ln" ] &&
+   [ "$obs_ln" -lt "$sbg_ln" ] && [ "$sbg_ln" -lt "$sbt_ln" ]; then
+  ok "the sidebar toggle is wired by a guard that opens after the scrollspy observer"
+else
+  no "the sidebar toggle is wired by a guard that opens after the scrollspy observer" \
+     "observer=[${obs_ln:-missing}] sidebar guard=[${sbg_ln:-missing}] toggle=[${sbt_ln:-missing}]"
+fi
+
+# `toc` is read by all three sections. Wrapping its declaration inside the build
+# guard would scope it to that callback and leave the scrollspy and the sidebar
+# throwing a ReferenceError under someone else's label -- the sectionNodes
+# precedent. Anchored at indent 2 for the same reason that one is: an unanchored
+# grep still finds the declaration after it has been moved inside a guard(), so
+# the assertion would keep passing through the exact regression it names.
+chk "the toc handle stays a declaration at IIFE scope, not inside a guard()" \
+  "$(grep -c '^  var toc = document.getElementById("toc");$' "$S/template.html")" "1"
+
+# The scrollspy reads the links out of #toc, which only exist once the build
+# section has appended them. The declarations hoist; the appendChild does not.
+# A scrollspy guard placed first sees an empty nav, registers no links, and the
+# index never highlights -- with nothing on the page or in the console to say
+# so. Presence greps cannot see that; assert the source order it depends on.
+build_ln=$(grep -n 'guard("index: build"' "$S/template.html" | head -1 | cut -d: -f1)
+spy_ln=$(grep -n 'guard("index: scrollspy"' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$build_ln" ] && [ -n "$spy_ln" ] && [ "$build_ln" -lt "$spy_ln" ]; then
+  ok "the scrollspy is wired after the index has been appended"
+else
+  no "the scrollspy is wired after the index has been appended" \
+     "build=[${build_ln:-missing}] scrollspy=[${spy_ln:-missing}]"
+fi
+
+mirror_chk "Task 14's plan snippet is byte-identical to the shipped template" \
+  "$TOC_HEAD" "$S/template.html" "$TOC_HEAD" '})();'
+# NOTE FOR TASK 15: the stop marker above is the IIFE's closing "})();", correct
+# only while the mobile sidebar is the last section in the file. Rather than hand
+# Task 15 the same puzzling hundred-line diff on someone else's mirror that Task
+# 13 handed this one, the invariant that marker rests on is pinned separately
+# here, by a label that says what to do about it. Appending a section after the
+# sidebar fails both checks -- this is the one that names the fix.
+after_sb=$(awk '/^  \/\* ---------- mobile sidebar ---------- \*\/$/ { seen = 1; next }
+                seen && /^  \/\* ---------- / { n++ }
+                END { print n + 0 }' "$S/template.html")
+chk "no section follows the mobile sidebar (retarget the Task 14 mirror stop marker if one must)" \
+  "$after_sb" "0"
 
 echo
 echo "shell: $pass passed, $fail failed"
