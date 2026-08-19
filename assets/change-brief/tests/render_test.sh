@@ -1056,47 +1056,38 @@ chk "tasks attach by document position" \
 chk "scrollspy observer present" "$(grep -c 'IntersectionObserver' "$S/template.html")" "1"
 chk "mobile sidebar toggle wired" "$(grep -c 'sbToggle' "$S/template.html")" "2"
 
-# Two of the three findings the jsdom pass turned up were one root cause: the id
-# slug() invents may already belong to something it did not generate -- the
-# shell's own ids, the 54 duplicate ids the dual-theme diagram pass leaves in a
-# dogfood render, or its own earlier output. Four clauses close it. Anchored at
-# indent 2, like the sectionNodes pin above: an unanchored grep still matches
-# the declaration after it has been re-nested, which is the regression it names.
-chk "slug's id map has no inherited keys, so a heading named constructor cannot alias one" \
-  "$(grep -c '^  var used = Object.create(null);$' "$S/template.html")" "1"
-# WHERE the reserved-family test lives is the whole assertion. As a clause in
-# the loop condition it was non-terminating: a second heading slugging to "mmd"
-# makes the loop propose mmd-2, mmd-3, ... and every candidate re-matches, so
-# the condition is never false. A presence grep for the pattern cannot see that
-# -- it matches either way -- so the two positions are pinned separately.
-chk "the reserved diagram box-id family is rewritten once, against base, before the loop" \
-  "$(grep -cF 'if (/^(?:d|i)?mmd(?:-\d+)?$/.test(base)) base = "h-" + base;' "$S/template.html")" "1"
+# Ids are payload-derived and the document holds ids slug() did not generate:
+# the shell's own, which exist by the time this runs, and the ~54 the dual-theme
+# diagram pass injects, which do not exist yet and no lookup can see. One
+# unconditional prefix answers both populations, and it is the whole defence
+# against the second -- so it is pinned as a fixed string, byte for byte.
+# Dropping the prefix, or making it conditional again, fails here.
+chk "every heading id is prefixed unconditionally, so none can land in the diagram namespace" \
+  "$(grep -cF 'var base = "h-" + (s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section");' "$S/template.html")" "1"
 # Fixed string, so ADDING a clause back into the condition fails here -- which a
-# grep for the loop's existence would not catch. What the condition is allowed
-# to test is exactly what makes it terminate: `used` and the document are finite
-# and neither grows inside the body.
+# grep for the loop's existence would not catch. A pattern tested against a loop
+# CANDIDATE rather than against base can be non-terminating, because the
+# candidate is what the body rewrites, and guard() catches throws, not hangs.
+# What the condition is allowed to test is exactly what bounds it: `used` and
+# the document are finite and neither grows inside the body.
 chk "the retry condition tests only used and the document, so it is bounded" \
   "$(grep -cF 'while (used[id] || document.getElementById(id)) {' "$S/template.html")" "1"
-# The general form of the same regression: any pattern applied to a loop
-# candidate can be non-terminating, because the candidate is what the body
-# rewrites. Patterns belong on `base`, which the body never touches. Expects
-# zero, so it passes before the fix and catches a reintroduction after it.
-chk "no pattern is tested against a loop candidate" \
+# Belt, not the guard. It greps one literal token, so a pattern applied to
+# `base + "-" + n` -- the same defect spelled differently -- sails past it. The
+# fixed-string pin on the while condition above is what actually holds the line;
+# this catches only the spelling that shipped once and was reverted.
+chk "no pattern is tested against the loop candidate by name" \
   "$(grep -c 'test(id)' "$S/template.html")" "0"
-# Order is the claim "before the loop", and only a line comparison tests it: both
-# greps above still pass if the reserve step is moved below the loop, where it
-# would rewrite base after every candidate had already been derived from it.
-res_ln=$(grep -n 'mmd(?:-\\d+)?\$/.test(base)' "$S/template.html" | head -1 | cut -d: -f1)
-loop_ln=$(grep -n 'while (used\[id\] || document.getElementById(id))' "$S/template.html" | head -1 | cut -d: -f1)
-if [ -n "$res_ln" ] && [ -n "$loop_ln" ] && [ "$res_ln" -lt "$loop_ln" ]; then
-  ok "the reserved family is rewritten before the retry loop reads base"
-else
-  no "the reserved family is rewritten before the retry loop reads base" \
-     "reserve=[${res_ln:-missing}] loop=[${loop_ln:-missing}]"
-fi
+# Defence in depth, not the fix, and the label says so because the measurement
+# does: under the retry loop above, a plain {} and no map at all both produce
+# byte-identical output. Object.create(null) removes a class of surprise the
+# loop already happens to cover. Anchored at indent 2, like the sectionNodes
+# pin: an unanchored grep still matches after the declaration is re-nested.
+chk "slug's id map is prototype-free (defence in depth; the retry loop is the fix)" \
+  "$(grep -c '^  var used = Object.create(null);$' "$S/template.html")" "1"
 # Presence pin, and the honest scope is that no grep can see a loop advance.
-# Termination is not proven here, and it was not proven in jsdom either -- the
-# earlier wording claiming that was wrong, and the loop it described did not in
+# Termination is not proven here, and was never proven in jsdom either -- an
+# earlier wording claiming so was wrong, and the loop it described did not in
 # fact terminate. It follows instead from the condition pinned above: `used` and
 # the document are finite, neither grows inside the body, and each turn proposes
 # a distinct candidate, so a free one is reached in at most one turn more than
@@ -1108,6 +1099,26 @@ chk "the retry loop advances its candidate each turn" \
 # and silently reintroduce the "Foo"/"Foo"/"Foo 2" collision.
 chk "the per-base counter form, whose own output collided with real headings, is gone" \
   "$(grep -c 'used\[base\] = (used\[base\] || 0) + 1' "$S/template.html")" "0"
+
+# rootMargin shrinks the observer root to the top 30% of the viewport, so for
+# most of a section's scroll NOTHING is in the band -- and any heading with less
+# than 0.7 of a viewport of content after it can never enter it at all. Without
+# the early return the callback clears every active class and adds none, so the
+# index goes blank through the body of every section and stays blank on the last
+# one forever.
+chk "the scrollspy keeps its last highlight when no heading is in the band" \
+  "$(grep -cF 'if (!first) return;' "$S/template.html")" "1"
+# Order is the entire claim. The grep above still passes with the return moved
+# below the clear loop -- where it would run after every class had already been
+# stripped, restoring exactly the blank index it exists to prevent.
+sticky_ln=$(grep -n 'if (!first) return;' "$S/template.html" | head -1 | cut -d: -f1)
+clear_ln=$(grep -n 'links\[k\].classList.remove("active")' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$sticky_ln" ] && [ -n "$clear_ln" ] && [ "$sticky_ln" -lt "$clear_ln" ]; then
+  ok "the sticky return runs before the clear loop, not after it"
+else
+  no "the sticky return runs before the clear loop, not after it" \
+     "return=[${sticky_ln:-missing}] clear=[${clear_ln:-missing}]"
+fi
 
 # Containment for the three sections this task adds, by label, per the doctrine.
 for label in \

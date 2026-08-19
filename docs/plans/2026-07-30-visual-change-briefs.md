@@ -2544,47 +2544,38 @@ chk "tasks attach by document position" \
 chk "scrollspy observer present" "$(grep -c 'IntersectionObserver' "$S/template.html")" "1"
 chk "mobile sidebar toggle wired" "$(grep -c 'sbToggle' "$S/template.html")" "2"
 
-# Two of the three findings the jsdom pass turned up were one root cause: the id
-# slug() invents may already belong to something it did not generate -- the
-# shell's own ids, the 54 duplicate ids the dual-theme diagram pass leaves in a
-# dogfood render, or its own earlier output. Four clauses close it. Anchored at
-# indent 2, like the sectionNodes pin above: an unanchored grep still matches
-# the declaration after it has been re-nested, which is the regression it names.
-chk "slug's id map has no inherited keys, so a heading named constructor cannot alias one" \
-  "$(grep -c '^  var used = Object.create(null);$' "$S/template.html")" "1"
-# WHERE the reserved-family test lives is the whole assertion. As a clause in
-# the loop condition it was non-terminating: a second heading slugging to "mmd"
-# makes the loop propose mmd-2, mmd-3, ... and every candidate re-matches, so
-# the condition is never false. A presence grep for the pattern cannot see that
-# -- it matches either way -- so the two positions are pinned separately.
-chk "the reserved diagram box-id family is rewritten once, against base, before the loop" \
-  "$(grep -cF 'if (/^(?:d|i)?mmd(?:-\d+)?$/.test(base)) base = "h-" + base;' "$S/template.html")" "1"
+# Ids are payload-derived and the document holds ids slug() did not generate:
+# the shell's own, which exist by the time this runs, and the ~54 the dual-theme
+# diagram pass injects, which do not exist yet and no lookup can see. One
+# unconditional prefix answers both populations, and it is the whole defence
+# against the second -- so it is pinned as a fixed string, byte for byte.
+# Dropping the prefix, or making it conditional again, fails here.
+chk "every heading id is prefixed unconditionally, so none can land in the diagram namespace" \
+  "$(grep -cF 'var base = "h-" + (s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section");' "$S/template.html")" "1"
 # Fixed string, so ADDING a clause back into the condition fails here -- which a
-# grep for the loop's existence would not catch. What the condition is allowed
-# to test is exactly what makes it terminate: `used` and the document are finite
-# and neither grows inside the body.
+# grep for the loop's existence would not catch. A pattern tested against a loop
+# CANDIDATE rather than against base can be non-terminating, because the
+# candidate is what the body rewrites, and guard() catches throws, not hangs.
+# What the condition is allowed to test is exactly what bounds it: `used` and
+# the document are finite and neither grows inside the body.
 chk "the retry condition tests only used and the document, so it is bounded" \
   "$(grep -cF 'while (used[id] || document.getElementById(id)) {' "$S/template.html")" "1"
-# The general form of the same regression: any pattern applied to a loop
-# candidate can be non-terminating, because the candidate is what the body
-# rewrites. Patterns belong on `base`, which the body never touches. Expects
-# zero, so it passes before the fix and catches a reintroduction after it.
-chk "no pattern is tested against a loop candidate" \
+# Belt, not the guard. It greps one literal token, so a pattern applied to
+# `base + "-" + n` -- the same defect spelled differently -- sails past it. The
+# fixed-string pin on the while condition above is what actually holds the line;
+# this catches only the spelling that shipped once and was reverted.
+chk "no pattern is tested against the loop candidate by name" \
   "$(grep -c 'test(id)' "$S/template.html")" "0"
-# Order is the claim "before the loop", and only a line comparison tests it: both
-# greps above still pass if the reserve step is moved below the loop, where it
-# would rewrite base after every candidate had already been derived from it.
-res_ln=$(grep -n 'mmd(?:-\\d+)?\$/.test(base)' "$S/template.html" | head -1 | cut -d: -f1)
-loop_ln=$(grep -n 'while (used\[id\] || document.getElementById(id))' "$S/template.html" | head -1 | cut -d: -f1)
-if [ -n "$res_ln" ] && [ -n "$loop_ln" ] && [ "$res_ln" -lt "$loop_ln" ]; then
-  ok "the reserved family is rewritten before the retry loop reads base"
-else
-  no "the reserved family is rewritten before the retry loop reads base" \
-     "reserve=[${res_ln:-missing}] loop=[${loop_ln:-missing}]"
-fi
+# Defence in depth, not the fix, and the label says so because the measurement
+# does: under the retry loop above, a plain {} and no map at all both produce
+# byte-identical output. Object.create(null) removes a class of surprise the
+# loop already happens to cover. Anchored at indent 2, like the sectionNodes
+# pin: an unanchored grep still matches after the declaration is re-nested.
+chk "slug's id map is prototype-free (defence in depth; the retry loop is the fix)" \
+  "$(grep -c '^  var used = Object.create(null);$' "$S/template.html")" "1"
 # Presence pin, and the honest scope is that no grep can see a loop advance.
-# Termination is not proven here, and it was not proven in jsdom either -- the
-# earlier wording claiming that was wrong, and the loop it described did not in
+# Termination is not proven here, and was never proven in jsdom either -- an
+# earlier wording claiming so was wrong, and the loop it described did not in
 # fact terminate. It follows instead from the condition pinned above: `used` and
 # the document are finite, neither grows inside the body, and each turn proposes
 # a distinct candidate, so a free one is reached in at most one turn more than
@@ -2596,6 +2587,26 @@ chk "the retry loop advances its candidate each turn" \
 # and silently reintroduce the "Foo"/"Foo"/"Foo 2" collision.
 chk "the per-base counter form, whose own output collided with real headings, is gone" \
   "$(grep -c 'used\[base\] = (used\[base\] || 0) + 1' "$S/template.html")" "0"
+
+# rootMargin shrinks the observer root to the top 30% of the viewport, so for
+# most of a section's scroll NOTHING is in the band -- and any heading with less
+# than 0.7 of a viewport of content after it can never enter it at all. Without
+# the early return the callback clears every active class and adds none, so the
+# index goes blank through the body of every section and stays blank on the last
+# one forever.
+chk "the scrollspy keeps its last highlight when no heading is in the band" \
+  "$(grep -cF 'if (!first) return;' "$S/template.html")" "1"
+# Order is the entire claim. The grep above still passes with the return moved
+# below the clear loop -- where it would run after every class had already been
+# stripped, restoring exactly the blank index it exists to prevent.
+sticky_ln=$(grep -n 'if (!first) return;' "$S/template.html" | head -1 | cut -d: -f1)
+clear_ln=$(grep -n 'links\[k\].classList.remove("active")' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$sticky_ln" ] && [ -n "$clear_ln" ] && [ "$sticky_ln" -lt "$clear_ln" ]; then
+  ok "the sticky return runs before the clear loop, not after it"
+else
+  no "the sticky return runs before the clear loop, not after it" \
+     "return=[${sticky_ln:-missing}] clear=[${clear_ln:-missing}]"
+fi
 
 # Containment for the three sections this task adds, by label, per the doctrine.
 for label in \
@@ -2669,7 +2680,7 @@ chk "no section follows the mobile sidebar (retarget the Task 14 mirror stop mar
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: eighteen FAILs, exit 1 — measured against the pre-task template, not counted off the fence. Twenty assertions are appended and one more is retargeted; three of the twenty expect a count of zero ("no pattern is tested against a loop candidate", "the per-base counter form ... is gone" and "no section follows the mobile sidebar") and so pass before the code they guard exists, and Task 13's retargeted mirror fails here because its new stop marker is not in the template yet.
+Expected: nineteen FAILs, exit 1 — measured against the pre-task template, not counted off the fence. Twenty-one assertions are appended and one more is retargeted; two of the twenty-one expect a count of zero ("no pattern is tested against the loop candidate by name" and "no section follows the mobile sidebar") and so pass before the code they guard exists, and Task 13's retargeted mirror fails here because its new stop marker is not in the template yet.
 
 - [ ] **Step 3: Add the index, scrollspy and mobile sidebar**
 
@@ -2683,79 +2694,67 @@ Append inside the IIFE, after the mermaid renderer:
      scrollspy and the sidebar dead with a ReferenceError reported under
      someone else's label -- the sectionNodes precedent above. */
   /* Ids are payload-derived, and the document already holds ids this function
-     did not generate: the shell's own, and -- once the async diagram chain
-     lands -- every id inside every injected SVG, twice over, because both
-     theme passes render. Measured on the dogfood brief: 54 such duplicates,
-     including UNNAMESPACED ones like arrowhead, crosshead, sequencenumber,
-     clock and database. So the rule is "retry until the id is free", not
-     "count how many times I have made this base".
+     did not generate. Two populations, and they need different answers:
 
-     Object.create(null), because a plain {} inherits Object.prototype: a
-     heading titled "constructor" found a truthy value in an empty map, so
-     (v || 0) + 1 produced a string, "> 1" was false forever, and two such
-     headings shared one id. "__proto__" is unreachable only because marked
-     renders it as strong emphasis -- an accident, not a defence.
+     Ids that exist BY NOW -- the shell's own. A heading titled "Sidebar" or
+     "Toc" used to take one, so its index link scrolled to the aside or to the
+     nav instead of to the heading. Measured, not supposed.
 
-     A retry LOOP rather than a per-base counter, because the counter's own
-     output collided with real headings: "Foo", "Foo", "Foo 2" gave the second
-     and third heading the same id, and a duplicate id costs a working index
-     entry (the link map keeps one per key) and sends its anchor to the wrong
-     section.
+     Ids that do not exist yet. This section is synchronous and the diagram
+     chain is still in flight, so not one of the ~54 ids the dual-theme render
+     injects exists when this runs, and no lookup can see them. Sixteen of them
+     are literals in the vendored bundle, and because base is lowercased, eight
+     are reachable from a heading: arrowend, arrowhead, crosshead, filled-head,
+     sequencenumber, clock, computer and database -- three of which are
+     plausible section names in a real spec. Colliding with one gives an index
+     link that resolves into <defs>, unrendered and zero-size. Colliding with a
+     box id was worse: render() opens by removing the elements whose ids are the
+     box id and that id prefixed with d and with i, so the heading itself was
+     DELETED from the document on the SUCCESS path, with no error card and no
+     console line.
 
-     document.getElementById covers the ids that exist BY NOW, and measurement
-     is what bounds that claim rather than widens it: a heading titled "Sidebar"
-     or "Toc" used to take the shell's own id, so its index link scrolled to the
-     aside or to the nav instead of to the heading. It does NOT cover the
-     diagram ids. This section is synchronous and the diagram chain is still in
-     flight, so not one of those 54 exists yet when this runs -- which is also
-     why reserving the mmd- box ids by PATTERN below is a separate step and not
-     a redundant one.
+     One unconditional prefix answers both, and answers the second population --
+     the one nothing can look up -- as completely as the first. Every id the
+     library emits either has its own prefix or is one of those literals; none
+     can begin "h-". It is not airtight, and the honest limit is worth stating:
+     the bundle also emits payload-derived ids through attr("id", node.id)
+     forms, so a deliberately hostile diagram node named "h-something" could
+     still collide. What it eliminates is every accidental collision and every
+     literal one. Task 17's deadAnchors probe is the backstop for the rest --
+     it asserts the spec-level property (every index entry resolves to its own
+     heading) in a real browser, after the diagrams have landed, rather than
+     chasing a version-coupled vocabulary here.
 
-     What that leaves open, said plainly instead of papered over: a heading
-     slugging onto one of the diagram library's unnamespaced ids (arrowhead,
-     crosshead, sequencenumber, clock, database, filled-head, and the
-     payload-derived edge ids) still ends up with an index link that resolves
-     into <defs> -- unrendered, zero-size, going nowhere. Closing it needs
-     either a version-coupled vocabulary to reserve or a prefix on every heading
-     id, and a prefix changes every anchor in the document; neither is this
-     task's to choose.
+     The retry loop is what handles collisions among the headings themselves,
+     and it replaced a per-base counter whose own output collided with real
+     headings: "Foo", "Foo", "Foo 2" gave the second and third heading one id,
+     which costs a working index entry (the link map keeps one per key) and
+     sends its anchor to the wrong section. It terminates because what it tests
+     is finite: neither `used` nor the document grows inside the body, and each
+     turn proposes a distinct candidate, so a free one is reached in at most one
+     turn more than there are ids already taken. Never put a PATTERN in that
+     condition -- tested against a candidate rather than against base, a pattern
+     the body can keep re-satisfying never terminates, and guard() catches
+     throws, not hangs: a pinned main thread shows no error card, no console
+     line, never resumes the diagram chain, and never even lets the run
+     deadline's setTimeout fire.
 
-     The mmd- box ids are reserved anyway, because that collision is
-     destructive rather than merely wrong. Confirmed against the vendored
-     bundle rather than assumed: render() opens by removing the elements whose
-     ids are the box id and that id prefixed with d and with i, so a heading
-     holding one was DELETED from the document on the SUCCESS path, with no
-     error card and no console line. */
+     Two measured properties worth not re-deriving. The loop is quadratic in the
+     number of headings sharing one base -- ~30s at ~32k collisions, which no
+     brief approaches, but it is a payload-controlled cost. And \w is ASCII-only,
+     so a wholly non-Latin heading strips to "" and becomes section, section-2,
+     ...; navigation still works, because every link carries data-target and the
+     id it names, but the anchors are not readable.
+
+     Object.create(null) is defence in depth rather than the fix: a plain {}
+     inherits Object.prototype, and under the old counter a heading titled
+     "constructor" found a truthy value in an empty map and two such headings
+     shared one id. The retry loop above closes that on its own -- measured, {}
+     and no map at all both produce byte-identical output today. It stays
+     because it costs nothing and removes a whole class of surprise. */
   var used = Object.create(null);
   function slug(s){
-    var base = s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section";
-    /* Reserve the box-id family ONCE, here, against base -- never as a clause
-       in the loop condition below. Tested against a loop CANDIDATE it does not
-       terminate: a second heading slugging to "mmd" makes the loop propose
-       mmd-2, mmd-3, ... and every one of those matches the pattern again, so
-       the condition is never false. That is a pinned main thread rather than a
-       throw, and guard() catches throws -- so there is no error card, no
-       console line, the diagram chain's microtasks never resume, and even the
-       run deadline's setTimeout can never fire. A dead tab, from an untrusted
-       payload, in a file whose premise is that a blank page is worse than no
-       file at all. The punctuation strip makes the trigger wider than it looks:
-       "M.M.D.", "MMD:", "(mmd)" and "m/m/d" all reduce to the same base.
-
-       The rewrite PREFIXES rather than suffixes, and that is what makes it
-       provable in one step: the pattern is anchored at ^ and allows only "d" or
-       "i" before "mmd", so a prefix beginning with any other letter puts base
-       -- and every candidate derived from it -- permanently outside the family,
-       with no reasoning about whether some appended digits might land back in
-       it. The optional -\d+ catches a heading that arrives already numbered,
-       like "mmd 5"; the BARE form has to be reserved too, and that is the part
-       that is easy to get wrong -- leaving base "mmd" alone looks harmless
-       because bare "mmd" is not a box id, but the loop's very next candidate
-       from it is "mmd-2", which is. */
-    if (/^(?:d|i)?mmd(?:-\d+)?$/.test(base)) base = "h-" + base;
-    /* What is left terminates because it is finite: neither `used` nor the
-       document grows inside the body, and each turn proposes a distinct
-       candidate, so a free one is reached in at most one turn more than there
-       are ids already taken. */
+    var base = "h-" + (s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section");
     var id = base, n = 1;
     while (used[id] || document.getElementById(id)) {
       n++; id = base + "-" + n;
@@ -2773,17 +2772,24 @@ Append inside the IIFE, after the mermaid renderer:
      Each fix removed one trigger and left the mechanism. The sentinel gives an
      exact anchor for where the plan STARTS, so use that instead of adjacency.
 
-     Stated plainly, because the earlier wording here claimed more than the code
-     delivers -- the same class of mismatch as an assertion label promising a
-     guarantee its grep never checks: the rule below is "a task-shaped h3 joins
-     the Plan group if it FOLLOWS the plan heading anywhere in the document".
-     There is no upper bound at the next h2. Measured: a task-shaped h3 under a
-     trailing "## Self-Review" is pulled forward into the Plan group, out of
-     document order. This repo's plan template has no task-shaped h3s after the
-     tasks, so nothing triggers it today, and it is deliberately left alone
-     here: Task 15 rewrites this into planRegionHeadings() on the same
-     compareDocumentPosition semantics, so a fix made here would be overwritten
-     one task later. Decide the rule there, at the point of change. */
+     The rule, stated because an earlier version of this comment described one
+     the code does not implement: a task-shaped h3 joins the Plan group if it
+     FOLLOWS the plan heading anywhere in the document. There is no upper bound
+     at the next h2, so a task-shaped h3 under a trailing "## Self-Review" is
+     pulled forward into the Plan group, out of document order.
+
+     That membership rule is intentional rather than a gap. render.sh appends
+     the sentinel heading and then the whole plan document to EOF, so every h2
+     the plan carries of its own legitimately follows the sentinel, and every
+     task under those h2s legitimately belongs to the plan. What is odd is the
+     index ORDERING alone, and only for a plan that puts task-shaped h3s after a
+     later h2 — which this repo's plan template does not.
+
+     The index keeps its own copy of the predicate deliberately. Task 15
+     rewrites the DAG's collector into planRegionHeadings() but does not
+     consolidate this one: its own assertions pin that, expecting two
+     occurrences of the position constant, the second being the line below,
+     surviving that refactor untouched. */
   var planGroup = null, planKids = null;
 
   /* Three sections, three guards -- not one wrapper around all three. They form
@@ -2833,6 +2839,11 @@ Append inside the IIFE, after the mermaid renderer:
           });
         })(chev, kids);
       } else if (group) {
+        /* `group` is null until the first h2, so an h3 preceding every h2 is
+           silently dropped from the index -- it still gets an id and is still
+           observed, it just has no entry. The sentinel guarantees at least one
+           h2 exists, but not that it precedes the document's first h3, and a
+           top-level li with no group has nowhere correct to sit. */
         var owner = group, into = kids;
         if (planKids && /^Task\s+\d+/i.test(text) && planH2 !== h &&
             (planH2.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING)) {
@@ -2852,12 +2863,36 @@ Append inside the IIFE, after the mermaid renderer:
     var links = {};
     Array.prototype.forEach.call(toc.querySelectorAll("a[data-target]"), function(a){ links[a.dataset.target] = a; });
     var visible = {};
+    /* Snapshotted once. It stays consistent with the index only while nothing
+       later adds, removes or moves a heading -- an invariant a future task could
+       break silently, since a heading appearing after this line gets no index
+       entry, no id and no observer, with nothing anywhere to say so. Task 13's
+       renderer is the only thing that mutates the document after this point,
+       and it touches [data-src] boxes only. */
     var heads = Array.prototype.slice.call(content.querySelectorAll("h2, h3"));
     var obs = new IntersectionObserver(function(entries){
       entries.forEach(function(e){ visible[e.target.id] = e.isIntersecting; });
+      /* Re-derived from `heads`, which is in document order, rather than from
+         `entries`: the observer makes no ordering guarantee about the records
+         it delivers, and trusting them is how most hand-rolled scrollspies pick
+         the wrong heading on a fast scroll. */
       var first = heads.filter(function(h){ return visible[h.id]; })[0];
+      /* Sticky, and this is the difference between a highlight and no highlight
+         for most of the document. rootMargin shrinks the root to the top 30% of
+         the viewport, so a heading is "visible" for about 0.3*vh plus its own
+         height -- ~310px at vh=900, against sections that run thousands. With
+         nothing in that band the clear loop below would strip every active
+         class and add none, so the index would sit blank through the body of
+         every section. Worse, it is not merely transient: putting heading H in
+         the band needs scrollTop >= H.offsetTop - 0.3*vh, and scrollTop tops
+         out at docHeight - vh, so ANY heading with less than 0.7 of a viewport
+         of content after it can never enter the band at all -- the last section
+         of every brief, permanently. Keeping the previous highlight self-
+         corrects in both directions, because scrolling back up brings the
+         previous heading down through the band from above. */
+      if (!first) return;
       Object.keys(links).forEach(function(k){ links[k].classList.remove("active"); });
-      if (first && links[first.id]) links[first.id].classList.add("active");
+      if (links[first.id]) links[first.id].classList.add("active");
     }, { rootMargin:"0px 0px -70% 0px", threshold:0 });
     heads.forEach(function(h){ obs.observe(h); });
   });
@@ -2873,7 +2908,7 @@ Append inside the IIFE, after the mermaid renderer:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: the suite reports 248 passed, 0 failed — every appended assertion green, plus Task 13's mirror, whose stop marker this task retargets. Visual confirmation is **walk cases 1 and 3**: nothing static here can see the sidebar slide, the chevron rotate, or the scrollspy follow a real scroll.
+Expected: the suite reports 249 passed, 0 failed — every appended assertion green, plus Task 13's mirror, whose stop marker this task retargets. Visual confirmation is **walk cases 1 and 3**. Case 1 carries the two checks nothing static here can reach: that an index entry still lands on its own heading after the diagrams have injected their ids, and that the highlight tracks a real scroll without ever going blank.
 
 - [ ] **Step 5: Commit**
 
@@ -3127,20 +3162,20 @@ Three assertions in that same block are expected to **survive Step 3d untouched*
 check. They pass only because Step 3d keeps the hoisted declaration and assigns into it. If
 any of the three fails, Step 3d was applied wrongly; retargeting them is the wrong fix.
 
-Step 3d adds a sixteenth guarded section, so raise the containment floor. Replace:
+Step 3d adds a twentieth guarded section, so raise the containment floor. Task 14 left three floors in the suite (`-ge 15`, `-ge 16` and `-ge 19`); `-ge 19` is the live one, and it is the block to retarget. Replace:
 
 ```bash
 n=$(grep -c 'guard("' "$S/template.html")
-[ "$n" -ge 15 ] && ok "at least 15 top-level sections guarded (floor raised by this task)" \
-  || no "at least 15 top-level sections guarded (floor raised by this task)" "$n"
+[ "$n" -ge 19 ] && ok "at least 19 top-level sections guarded (floor raised by this task)" \
+  || no "at least 19 top-level sections guarded (floor raised by this task)" "$n"
 ```
 
 with:
 
 ```bash
 n=$(grep -c 'guard("' "$S/template.html")
-[ "$n" -ge 16 ] && ok "at least 16 top-level sections guarded (floor raised by this task)" \
-  || no "at least 16 top-level sections guarded (floor raised by this task)" "$n"
+[ "$n" -ge 20 ] && ok "at least 20 top-level sections guarded (floor raised by this task)" \
+  || no "at least 20 top-level sections guarded (floor raised by this task)" "$n"
 ```
 
 and under `== template JS: index ==`, replace:
@@ -3502,6 +3537,20 @@ async function probe(file) {
       kids: [...g.querySelectorAll('.kids a')].map(a => a.textContent)
     })),
     anchors: [...document.querySelectorAll('#content a')].map(a => ({ href: a.getAttribute('href'), host: a.host })),
+    // Every index entry must resolve to its own heading. This runs after the
+    // waitForSelector above, so the diagram chain has finished and every id the
+    // library injects -- including the unnamespaced literals it does not
+    // namespace per render -- is already in the document. Stated as the
+    // spec-level property rather than as a vocabulary to reserve: it catches a
+    // collision with any id, from any diagram type, in any future version of
+    // the bundle, and it is the backstop for the payload-derived ids that the
+    // template's `h-` prefix on heading ids cannot cover.
+    deadAnchors: [...document.querySelectorAll('#toc a[data-target]')]
+      .filter(a => {
+        const t = document.getElementById(a.dataset.target);
+        return !t || !/^H[23]$/.test(t.tagName);
+      })
+      .map(a => a.dataset.target),
     chips: document.querySelectorAll('.img-chip').length,
     pwn: window.__PWN === undefined ? null : window.__PWN,
     dagCaption: (document.querySelector('.dag-caption') || {}).textContent || null,
@@ -3537,6 +3586,11 @@ async function probe(file) {
   chk('gate2: all three tasks under Plan', plan ? plan.kids.length : 0, 3);
   chk('gate2: dag caption present', typeof r.dagCaption === 'string', true);
   chk('gate2: spec diagram plus dag rendered', [r.light, r.dark], [2, 2]);
+  // The property no static test can reach: after the diagrams have landed,
+  // every index entry still resolves to its own heading. A heading whose id
+  // collides with one the library injects resolves to that node instead --
+  // silently, and only when the diagram precedes the heading in document order.
+  chk('gate2: every index entry resolves to its own heading', r.deadAnchors, []);
   chk('gate2: no page errors', r.pageerrors, []);
 }
 
@@ -4286,7 +4340,7 @@ git commit -m "chore(change-brief): dogfood render and completed browser walk"
 
 Eleven cases. Nine are carried forward from the spec's `browser-walk-only` requirements; cases 10 and 11 were added by Task 13 to settle consequences that task states but cannot verify statically. No account or login is involved anywhere — every case opens a local file. Execute each in full sentences and record pass or fail.
 
-1. **Index navigation.** Open `docs/briefs/2026-07-27-visual-change-briefs-design.html` from `file://` in Chrome at a 1440px-wide window. Confirm the left sidebar lists every `##` section of the document as a top-level entry, with each of that section's `###` subsections nested beneath it. Click a chevron next to one group and confirm it collapses that group's children without navigating away from the current scroll position. Confirm the Plan group lists all twenty-three tasks as children, not just the first few.
+1. **Index navigation.** Open `docs/briefs/2026-07-27-visual-change-briefs-design.html` from `file://` in Chrome at a 1440px-wide window. Confirm the left sidebar lists every `##` section of the document as a top-level entry, with each of that section's `###` subsections nested beneath it. Click a chevron next to one group and confirm it collapses that group's children without navigating away from the current scroll position. Confirm the Plan group lists all twenty-three tasks as children, not just the first few. Click one entry in the Plan group and confirm the page lands on that task's own heading — this is the only check anywhere that a heading id still resolves to its heading after the diagrams have injected their own ids, and it is what would surface a collision the `h-` prefix does not cover. Then scroll slowly from the top of the document to the bottom and confirm exactly one index entry is highlighted at all times, that it tracks the section you are reading, and that it never goes blank — including while you are deep inside a long section and while you are at the very end of the document.
 
 2. **Theme switching.** With the same page open, click the theme control in the sidebar header through all three states: auto, light, and dark. In each state confirm every mermaid diagram remains legible — specifically that no diagram shows dark text on a dark background or light text on a light background. Reload the page and confirm the theme you last selected is still in effect.
 
@@ -4320,7 +4374,7 @@ Eleven cases. Nine are carried forward from the spec's `browser-walk-only` requi
 
 **Placeholder scan.** No "TBD", no "implement later", no "add error handling". Every code step carries the complete text to write.
 
-**Type consistency.** `planH2`, `PLAN_MARK`, `sectionNodes`, `buildDag`, `normId`, `nodeName`, `planRegionHeadings`, `safeHref`, `decodeEntities`, `banner`, `decodeB64`, and `esc` are defined once and referenced consistently. Task 15 renames `planTasks` to `planRegionHeadings`; Step 3f retargets the one earlier assertion that names it, raises the guard floor to 16, and lists the three assertions in the same block that are expected to survive the rename untouched, so no task refers to the old name afterwards.
+**Type consistency.** `planH2`, `PLAN_MARK`, `sectionNodes`, `buildDag`, `normId`, `nodeName`, `planRegionHeadings`, `safeHref`, `decodeEntities`, `banner`, `decodeB64`, and `esc` are defined once and referenced consistently. Task 15 renames `planTasks` to `planRegionHeadings`; Step 3f retargets the one earlier assertion that names it, raises the guard floor to 20, and lists the three assertions in the same block that are expected to survive the rename untouched, so no task refers to the old name afterwards.
 
 **Walk-tag coverage.** Twenty-three tasks, each tagged. Three are `browser-walk-only` (Tasks 13, 14, 23). Eleven walk cases, covering diagram legibility, index behavior, responsive layout, error isolation, print, inertness, graph correctness, the pending notice, cross-browser parity, HTML in a heading through the mermaid label path, and duplicate unnamespaced diagram ids across the two theme variants.
 

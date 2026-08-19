@@ -992,79 +992,67 @@ __BRIEF_B64__
      scrollspy and the sidebar dead with a ReferenceError reported under
      someone else's label -- the sectionNodes precedent above. */
   /* Ids are payload-derived, and the document already holds ids this function
-     did not generate: the shell's own, and -- once the async diagram chain
-     lands -- every id inside every injected SVG, twice over, because both
-     theme passes render. Measured on the dogfood brief: 54 such duplicates,
-     including UNNAMESPACED ones like arrowhead, crosshead, sequencenumber,
-     clock and database. So the rule is "retry until the id is free", not
-     "count how many times I have made this base".
+     did not generate. Two populations, and they need different answers:
 
-     Object.create(null), because a plain {} inherits Object.prototype: a
-     heading titled "constructor" found a truthy value in an empty map, so
-     (v || 0) + 1 produced a string, "> 1" was false forever, and two such
-     headings shared one id. "__proto__" is unreachable only because marked
-     renders it as strong emphasis -- an accident, not a defence.
+     Ids that exist BY NOW -- the shell's own. A heading titled "Sidebar" or
+     "Toc" used to take one, so its index link scrolled to the aside or to the
+     nav instead of to the heading. Measured, not supposed.
 
-     A retry LOOP rather than a per-base counter, because the counter's own
-     output collided with real headings: "Foo", "Foo", "Foo 2" gave the second
-     and third heading the same id, and a duplicate id costs a working index
-     entry (the link map keeps one per key) and sends its anchor to the wrong
-     section.
+     Ids that do not exist yet. This section is synchronous and the diagram
+     chain is still in flight, so not one of the ~54 ids the dual-theme render
+     injects exists when this runs, and no lookup can see them. Sixteen of them
+     are literals in the vendored bundle, and because base is lowercased, eight
+     are reachable from a heading: arrowend, arrowhead, crosshead, filled-head,
+     sequencenumber, clock, computer and database -- three of which are
+     plausible section names in a real spec. Colliding with one gives an index
+     link that resolves into <defs>, unrendered and zero-size. Colliding with a
+     box id was worse: render() opens by removing the elements whose ids are the
+     box id and that id prefixed with d and with i, so the heading itself was
+     DELETED from the document on the SUCCESS path, with no error card and no
+     console line.
 
-     document.getElementById covers the ids that exist BY NOW, and measurement
-     is what bounds that claim rather than widens it: a heading titled "Sidebar"
-     or "Toc" used to take the shell's own id, so its index link scrolled to the
-     aside or to the nav instead of to the heading. It does NOT cover the
-     diagram ids. This section is synchronous and the diagram chain is still in
-     flight, so not one of those 54 exists yet when this runs -- which is also
-     why reserving the mmd- box ids by PATTERN below is a separate step and not
-     a redundant one.
+     One unconditional prefix answers both, and answers the second population --
+     the one nothing can look up -- as completely as the first. Every id the
+     library emits either has its own prefix or is one of those literals; none
+     can begin "h-". It is not airtight, and the honest limit is worth stating:
+     the bundle also emits payload-derived ids through attr("id", node.id)
+     forms, so a deliberately hostile diagram node named "h-something" could
+     still collide. What it eliminates is every accidental collision and every
+     literal one. Task 17's deadAnchors probe is the backstop for the rest --
+     it asserts the spec-level property (every index entry resolves to its own
+     heading) in a real browser, after the diagrams have landed, rather than
+     chasing a version-coupled vocabulary here.
 
-     What that leaves open, said plainly instead of papered over: a heading
-     slugging onto one of the diagram library's unnamespaced ids (arrowhead,
-     crosshead, sequencenumber, clock, database, filled-head, and the
-     payload-derived edge ids) still ends up with an index link that resolves
-     into <defs> -- unrendered, zero-size, going nowhere. Closing it needs
-     either a version-coupled vocabulary to reserve or a prefix on every heading
-     id, and a prefix changes every anchor in the document; neither is this
-     task's to choose.
+     The retry loop is what handles collisions among the headings themselves,
+     and it replaced a per-base counter whose own output collided with real
+     headings: "Foo", "Foo", "Foo 2" gave the second and third heading one id,
+     which costs a working index entry (the link map keeps one per key) and
+     sends its anchor to the wrong section. It terminates because what it tests
+     is finite: neither `used` nor the document grows inside the body, and each
+     turn proposes a distinct candidate, so a free one is reached in at most one
+     turn more than there are ids already taken. Never put a PATTERN in that
+     condition -- tested against a candidate rather than against base, a pattern
+     the body can keep re-satisfying never terminates, and guard() catches
+     throws, not hangs: a pinned main thread shows no error card, no console
+     line, never resumes the diagram chain, and never even lets the run
+     deadline's setTimeout fire.
 
-     The mmd- box ids are reserved anyway, because that collision is
-     destructive rather than merely wrong. Confirmed against the vendored
-     bundle rather than assumed: render() opens by removing the elements whose
-     ids are the box id and that id prefixed with d and with i, so a heading
-     holding one was DELETED from the document on the SUCCESS path, with no
-     error card and no console line. */
+     Two measured properties worth not re-deriving. The loop is quadratic in the
+     number of headings sharing one base -- ~30s at ~32k collisions, which no
+     brief approaches, but it is a payload-controlled cost. And \w is ASCII-only,
+     so a wholly non-Latin heading strips to "" and becomes section, section-2,
+     ...; navigation still works, because every link carries data-target and the
+     id it names, but the anchors are not readable.
+
+     Object.create(null) is defence in depth rather than the fix: a plain {}
+     inherits Object.prototype, and under the old counter a heading titled
+     "constructor" found a truthy value in an empty map and two such headings
+     shared one id. The retry loop above closes that on its own -- measured, {}
+     and no map at all both produce byte-identical output today. It stays
+     because it costs nothing and removes a whole class of surprise. */
   var used = Object.create(null);
   function slug(s){
-    var base = s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section";
-    /* Reserve the box-id family ONCE, here, against base -- never as a clause
-       in the loop condition below. Tested against a loop CANDIDATE it does not
-       terminate: a second heading slugging to "mmd" makes the loop propose
-       mmd-2, mmd-3, ... and every one of those matches the pattern again, so
-       the condition is never false. That is a pinned main thread rather than a
-       throw, and guard() catches throws -- so there is no error card, no
-       console line, the diagram chain's microtasks never resume, and even the
-       run deadline's setTimeout can never fire. A dead tab, from an untrusted
-       payload, in a file whose premise is that a blank page is worse than no
-       file at all. The punctuation strip makes the trigger wider than it looks:
-       "M.M.D.", "MMD:", "(mmd)" and "m/m/d" all reduce to the same base.
-
-       The rewrite PREFIXES rather than suffixes, and that is what makes it
-       provable in one step: the pattern is anchored at ^ and allows only "d" or
-       "i" before "mmd", so a prefix beginning with any other letter puts base
-       -- and every candidate derived from it -- permanently outside the family,
-       with no reasoning about whether some appended digits might land back in
-       it. The optional -\d+ catches a heading that arrives already numbered,
-       like "mmd 5"; the BARE form has to be reserved too, and that is the part
-       that is easy to get wrong -- leaving base "mmd" alone looks harmless
-       because bare "mmd" is not a box id, but the loop's very next candidate
-       from it is "mmd-2", which is. */
-    if (/^(?:d|i)?mmd(?:-\d+)?$/.test(base)) base = "h-" + base;
-    /* What is left terminates because it is finite: neither `used` nor the
-       document grows inside the body, and each turn proposes a distinct
-       candidate, so a free one is reached in at most one turn more than there
-       are ids already taken. */
+    var base = "h-" + (s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section");
     var id = base, n = 1;
     while (used[id] || document.getElementById(id)) {
       n++; id = base + "-" + n;
@@ -1082,17 +1070,24 @@ __BRIEF_B64__
      Each fix removed one trigger and left the mechanism. The sentinel gives an
      exact anchor for where the plan STARTS, so use that instead of adjacency.
 
-     Stated plainly, because the earlier wording here claimed more than the code
-     delivers -- the same class of mismatch as an assertion label promising a
-     guarantee its grep never checks: the rule below is "a task-shaped h3 joins
-     the Plan group if it FOLLOWS the plan heading anywhere in the document".
-     There is no upper bound at the next h2. Measured: a task-shaped h3 under a
-     trailing "## Self-Review" is pulled forward into the Plan group, out of
-     document order. This repo's plan template has no task-shaped h3s after the
-     tasks, so nothing triggers it today, and it is deliberately left alone
-     here: Task 15 rewrites this into planRegionHeadings() on the same
-     compareDocumentPosition semantics, so a fix made here would be overwritten
-     one task later. Decide the rule there, at the point of change. */
+     The rule, stated because an earlier version of this comment described one
+     the code does not implement: a task-shaped h3 joins the Plan group if it
+     FOLLOWS the plan heading anywhere in the document. There is no upper bound
+     at the next h2, so a task-shaped h3 under a trailing "## Self-Review" is
+     pulled forward into the Plan group, out of document order.
+
+     That membership rule is intentional rather than a gap. render.sh appends
+     the sentinel heading and then the whole plan document to EOF, so every h2
+     the plan carries of its own legitimately follows the sentinel, and every
+     task under those h2s legitimately belongs to the plan. What is odd is the
+     index ORDERING alone, and only for a plan that puts task-shaped h3s after a
+     later h2 — which this repo's plan template does not.
+
+     The index keeps its own copy of the predicate deliberately. Task 15
+     rewrites the DAG's collector into planRegionHeadings() but does not
+     consolidate this one: its own assertions pin that, expecting two
+     occurrences of the position constant, the second being the line below,
+     surviving that refactor untouched. */
   var planGroup = null, planKids = null;
 
   /* Three sections, three guards -- not one wrapper around all three. They form
@@ -1142,6 +1137,11 @@ __BRIEF_B64__
           });
         })(chev, kids);
       } else if (group) {
+        /* `group` is null until the first h2, so an h3 preceding every h2 is
+           silently dropped from the index -- it still gets an id and is still
+           observed, it just has no entry. The sentinel guarantees at least one
+           h2 exists, but not that it precedes the document's first h3, and a
+           top-level li with no group has nowhere correct to sit. */
         var owner = group, into = kids;
         if (planKids && /^Task\s+\d+/i.test(text) && planH2 !== h &&
             (planH2.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING)) {
@@ -1161,12 +1161,36 @@ __BRIEF_B64__
     var links = {};
     Array.prototype.forEach.call(toc.querySelectorAll("a[data-target]"), function(a){ links[a.dataset.target] = a; });
     var visible = {};
+    /* Snapshotted once. It stays consistent with the index only while nothing
+       later adds, removes or moves a heading -- an invariant a future task could
+       break silently, since a heading appearing after this line gets no index
+       entry, no id and no observer, with nothing anywhere to say so. Task 13's
+       renderer is the only thing that mutates the document after this point,
+       and it touches [data-src] boxes only. */
     var heads = Array.prototype.slice.call(content.querySelectorAll("h2, h3"));
     var obs = new IntersectionObserver(function(entries){
       entries.forEach(function(e){ visible[e.target.id] = e.isIntersecting; });
+      /* Re-derived from `heads`, which is in document order, rather than from
+         `entries`: the observer makes no ordering guarantee about the records
+         it delivers, and trusting them is how most hand-rolled scrollspies pick
+         the wrong heading on a fast scroll. */
       var first = heads.filter(function(h){ return visible[h.id]; })[0];
+      /* Sticky, and this is the difference between a highlight and no highlight
+         for most of the document. rootMargin shrinks the root to the top 30% of
+         the viewport, so a heading is "visible" for about 0.3*vh plus its own
+         height -- ~310px at vh=900, against sections that run thousands. With
+         nothing in that band the clear loop below would strip every active
+         class and add none, so the index would sit blank through the body of
+         every section. Worse, it is not merely transient: putting heading H in
+         the band needs scrollTop >= H.offsetTop - 0.3*vh, and scrollTop tops
+         out at docHeight - vh, so ANY heading with less than 0.7 of a viewport
+         of content after it can never enter the band at all -- the last section
+         of every brief, permanently. Keeping the previous highlight self-
+         corrects in both directions, because scrolling back up brings the
+         previous heading down through the band from above. */
+      if (!first) return;
       Object.keys(links).forEach(function(k){ links[k].classList.remove("active"); });
-      if (first && links[first.id]) links[first.id].classList.add("active");
+      if (links[first.id]) links[first.id].classList.add("active");
     }, { rootMargin:"0px 0px -70% 0px", threshold:0 });
     heads.forEach(function(h){ obs.observe(h); });
   });
