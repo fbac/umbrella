@@ -1206,6 +1206,11 @@ chk "stray U+2060 stripped from the payload" \
   "$(payload "$W/mark.html" | grep -cF "Fake$(printf '\342\201\240') Heading")" "0"
 chk "exactly one sentinel in the payload" \
   "$(payload "$W/mark.html" | grep -oF "$(printf '\342\201\240')" | wc -l | tr -d ' ')" "1"
+# The payload check above pins render.sh's half. This pins the page's half:
+# taking [0] reinstates "the first marked h2 wins", which IS the finding, and
+# reverting to it passed every other assertion in this suite.
+chk "the page requires exactly one marked h2, not the first one" \
+  "$(grep -cF 'var planH2 = marked_h2s.length === 1 ? marked_h2s[0] : null;' "$S/template.html")" "1"
 
 # F4: diag banners suppressed when the structural check passes.
 chk "diag banners gated on the sentinel" \
@@ -1246,6 +1251,8 @@ chk "guarded: guard(\"dag: no tasks banner\"" \
 # reader's source while the headings sit in view below it.
 chk "the no-tasks banner is gated on the collect guard having actually run" \
   "$(grep -cF 'planH2 && collected &&' "$S/template.html")" "1"
+chk "and that flag is set inside the collect callback, not beside it" \
+  "$(grep -c '^    collected = true;$' "$S/template.html")" "1"
 
 echo
 echo "shell: $pass passed, $fail failed"
