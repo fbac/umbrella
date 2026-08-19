@@ -2544,6 +2544,32 @@ chk "tasks attach by document position" \
 chk "scrollspy observer present" "$(grep -c 'IntersectionObserver' "$S/template.html")" "1"
 chk "mobile sidebar toggle wired" "$(grep -c 'sbToggle' "$S/template.html")" "2"
 
+# Two of the three findings the jsdom pass turned up were one root cause: the id
+# slug() invents may already belong to something it did not generate -- the
+# shell's own ids, the 54 duplicate ids the dual-theme diagram pass leaves in a
+# dogfood render, or its own earlier output. Four clauses close it. Anchored at
+# indent 2, like the sectionNodes pin above: an unanchored grep still matches
+# the declaration after it has been re-nested, which is the regression it names.
+chk "slug's id map has no inherited keys, so a heading named constructor cannot alias one" \
+  "$(grep -c '^  var used = Object.create(null);$' "$S/template.html")" "1"
+# The strongest of the four, and deliberately one assertion rather than three:
+# as a fixed string it pins the retry loop AND both namespace clauses together,
+# so removing or weakening any of them fails here. Separate greps for
+# getElementById(id) and the mmd- pattern would raise the count without
+# widening what is caught.
+chk "slug retries until the id is free, against its own output, the document as it stands, and the diagram box-id namespace" \
+  "$(grep -cF 'while (used[id] || document.getElementById(id) || /^(?:d|i)?mmd-\d+$/.test(id)) {' "$S/template.html")" "1"
+# Presence pin, not a proof of termination: no grep can see that this loop ends.
+# It is here because the failure it guards is a hung page rather than a wrong
+# id, and jsdom is where termination is actually demonstrated.
+chk "the retry loop advances its candidate each turn" \
+  "$(grep -cF 'n++; id = base + "-" + n;' "$S/template.html")" "1"
+# Expects zero, so it passes before the fix exists; it is here to catch the old
+# form being restored alongside the new one, where the counter would run again
+# and silently reintroduce the "Foo"/"Foo"/"Foo 2" collision.
+chk "the per-base counter form, whose own output collided with real headings, is gone" \
+  "$(grep -c 'used\[base\] = (used\[base\] || 0) + 1' "$S/template.html")" "0"
+
 # Containment for the three sections this task adds, by label, per the doctrine.
 for label in \
   'guard("index: build"' \
@@ -2616,7 +2642,7 @@ chk "no section follows the mobile sidebar (retarget the Task 14 mirror stop mar
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: thirteen FAILs, exit 1 — measured, not counted off the fence. Thirteen assertions are appended and one more is retargeted; "no section follows the mobile sidebar" expects a count of zero and so passes before the section it guards exists, and Task 13's retargeted mirror fails here because its new stop marker is not in the template yet.
+Expected: sixteen FAILs, exit 1 — measured against the pre-task template, not counted off the fence. Seventeen assertions are appended and one more is retargeted; two of the seventeen expect a count of zero ("the per-base counter form ... is gone" and "no section follows the mobile sidebar") and so pass before the code they guard exists, and Task 13's retargeted mirror fails here because its new stop marker is not in the template yet.
 
 - [ ] **Step 3: Add the index, scrollspy and mobile sidebar**
 
@@ -2629,11 +2655,59 @@ Append inside the IIFE, after the mermaid renderer:
      wrapper would scope the declaration to its own callback, leaving the
      scrollspy and the sidebar dead with a ReferenceError reported under
      someone else's label -- the sectionNodes precedent above. */
-  var used = {};
+  /* Ids are payload-derived, and the document already holds ids this function
+     did not generate: the shell's own, and -- once the async diagram chain
+     lands -- every id inside every injected SVG, twice over, because both
+     theme passes render. Measured on the dogfood brief: 54 such duplicates,
+     including UNNAMESPACED ones like arrowhead, crosshead, sequencenumber,
+     clock and database. So the rule is "retry until the id is free", not
+     "count how many times I have made this base".
+
+     Object.create(null), because a plain {} inherits Object.prototype: a
+     heading titled "constructor" found a truthy value in an empty map, so
+     (v || 0) + 1 produced a string, "> 1" was false forever, and two such
+     headings shared one id. "__proto__" is unreachable only because marked
+     renders it as strong emphasis -- an accident, not a defence.
+
+     A retry LOOP rather than a per-base counter, because the counter's own
+     output collided with real headings: "Foo", "Foo", "Foo 2" gave the second
+     and third heading the same id, and a duplicate id costs a working index
+     entry (the link map keeps one per key) and sends its anchor to the wrong
+     section.
+
+     document.getElementById covers the ids that exist BY NOW, and measurement
+     is what bounds that claim rather than widens it: a heading titled "Sidebar"
+     or "Toc" used to take the shell's own id, so its index link scrolled to the
+     aside or to the nav instead of to the heading. It does NOT cover the
+     diagram ids. This section is synchronous and the diagram chain is still in
+     flight, so not one of those 54 exists yet when this runs -- which is also
+     why reserving the mmd- box ids by PATTERN below is a separate clause and
+     not a redundant one.
+
+     What that leaves open, said plainly instead of papered over: a heading
+     slugging onto one of the diagram library's unnamespaced ids (arrowhead,
+     crosshead, sequencenumber, clock, database, filled-head, and the
+     payload-derived edge ids) still ends up with an index link that resolves
+     into <defs> -- unrendered, zero-size, going nowhere. Closing it needs
+     either a version-coupled vocabulary to reserve or a prefix on every heading
+     id, and a prefix changes every anchor in the document; neither is this
+     task's to choose.
+
+     The mmd- box ids are reserved anyway, because that collision is
+     destructive rather than merely wrong. Confirmed against the vendored
+     bundle rather than assumed: render() opens by removing the elements whose
+     ids are the box id and that id prefixed with d and with i, so a heading
+     holding one was DELETED from the document on the SUCCESS path, with no
+     error card and no console line. */
+  var used = Object.create(null);
   function slug(s){
     var base = s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section";
-    used[base] = (used[base] || 0) + 1;
-    return used[base] > 1 ? base + "-" + used[base] : base;
+    var id = base, n = 1;
+    while (used[id] || document.getElementById(id) || /^(?:d|i)?mmd-\d+$/.test(id)) {
+      n++; id = base + "-" + n;
+    }
+    used[id] = true;
+    return id;
   }
   var toc = document.getElementById("toc");
   var list = document.createElement("ul");
@@ -2642,8 +2716,20 @@ Append inside the IIFE, after the mermaid renderer:
      Nesting h3s under "whichever h2 came last" is why the plan's tasks have
      been stolen in five consecutive review rounds — by an unnested h3, a stray
      h1, a demoted h2, and a setext h2 manufactured from YAML front matter.
-     Each fix removed one trigger and left the mechanism. The sentinel already
-     identifies the plan region exactly, so use it. */
+     Each fix removed one trigger and left the mechanism. The sentinel gives an
+     exact anchor for where the plan STARTS, so use that instead of adjacency.
+
+     Stated plainly, because the earlier wording here claimed more than the code
+     delivers -- the same class of mismatch as an assertion label promising a
+     guarantee its grep never checks: the rule below is "a task-shaped h3 joins
+     the Plan group if it FOLLOWS the plan heading anywhere in the document".
+     There is no upper bound at the next h2. Measured: a task-shaped h3 under a
+     trailing "## Self-Review" is pulled forward into the Plan group, out of
+     document order. This repo's plan template has no task-shaped h3s after the
+     tasks, so nothing triggers it today, and it is deliberately left alone
+     here: Task 15 rewrites this into planRegionHeadings() on the same
+     compareDocumentPosition semantics, so a fix made here would be overwritten
+     one task later. Decide the rule there, at the point of change. */
   var planGroup = null, planKids = null;
 
   /* Three sections, three guards -- not one wrapper around all three. They form
@@ -2733,7 +2819,7 @@ Append inside the IIFE, after the mermaid renderer:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: all thirteen new assertions PASS and the suite reports 241 passed, 0 failed — including Task 13's mirror, whose stop marker this task retargets. Visual confirmation is **walk cases 1 and 3**: nothing static here can see the sidebar slide, the chevron rotate, or the scrollspy follow a real scroll.
+Expected: the suite reports 245 passed, 0 failed — every appended assertion green, plus Task 13's mirror, whose stop marker this task retargets. Visual confirmation is **walk cases 1 and 3**: nothing static here can see the sidebar slide, the chevron rotate, or the scrollspy follow a real scroll.
 
 - [ ] **Step 5: Commit**
 

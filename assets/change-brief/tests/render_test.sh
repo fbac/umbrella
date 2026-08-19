@@ -1056,6 +1056,32 @@ chk "tasks attach by document position" \
 chk "scrollspy observer present" "$(grep -c 'IntersectionObserver' "$S/template.html")" "1"
 chk "mobile sidebar toggle wired" "$(grep -c 'sbToggle' "$S/template.html")" "2"
 
+# Two of the three findings the jsdom pass turned up were one root cause: the id
+# slug() invents may already belong to something it did not generate -- the
+# shell's own ids, the 54 duplicate ids the dual-theme diagram pass leaves in a
+# dogfood render, or its own earlier output. Four clauses close it. Anchored at
+# indent 2, like the sectionNodes pin above: an unanchored grep still matches
+# the declaration after it has been re-nested, which is the regression it names.
+chk "slug's id map has no inherited keys, so a heading named constructor cannot alias one" \
+  "$(grep -c '^  var used = Object.create(null);$' "$S/template.html")" "1"
+# The strongest of the four, and deliberately one assertion rather than three:
+# as a fixed string it pins the retry loop AND both namespace clauses together,
+# so removing or weakening any of them fails here. Separate greps for
+# getElementById(id) and the mmd- pattern would raise the count without
+# widening what is caught.
+chk "slug retries until the id is free, against its own output, the document as it stands, and the diagram box-id namespace" \
+  "$(grep -cF 'while (used[id] || document.getElementById(id) || /^(?:d|i)?mmd-\d+$/.test(id)) {' "$S/template.html")" "1"
+# Presence pin, not a proof of termination: no grep can see that this loop ends.
+# It is here because the failure it guards is a hung page rather than a wrong
+# id, and jsdom is where termination is actually demonstrated.
+chk "the retry loop advances its candidate each turn" \
+  "$(grep -cF 'n++; id = base + "-" + n;' "$S/template.html")" "1"
+# Expects zero, so it passes before the fix exists; it is here to catch the old
+# form being restored alongside the new one, where the counter would run again
+# and silently reintroduce the "Foo"/"Foo"/"Foo 2" collision.
+chk "the per-base counter form, whose own output collided with real headings, is gone" \
+  "$(grep -c 'used\[base\] = (used\[base\] || 0) + 1' "$S/template.html")" "0"
+
 # Containment for the three sections this task adds, by label, per the doctrine.
 for label in \
   'guard("index: build"' \

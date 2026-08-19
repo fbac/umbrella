@@ -991,11 +991,59 @@ __BRIEF_B64__
      wrapper would scope the declaration to its own callback, leaving the
      scrollspy and the sidebar dead with a ReferenceError reported under
      someone else's label -- the sectionNodes precedent above. */
-  var used = {};
+  /* Ids are payload-derived, and the document already holds ids this function
+     did not generate: the shell's own, and -- once the async diagram chain
+     lands -- every id inside every injected SVG, twice over, because both
+     theme passes render. Measured on the dogfood brief: 54 such duplicates,
+     including UNNAMESPACED ones like arrowhead, crosshead, sequencenumber,
+     clock and database. So the rule is "retry until the id is free", not
+     "count how many times I have made this base".
+
+     Object.create(null), because a plain {} inherits Object.prototype: a
+     heading titled "constructor" found a truthy value in an empty map, so
+     (v || 0) + 1 produced a string, "> 1" was false forever, and two such
+     headings shared one id. "__proto__" is unreachable only because marked
+     renders it as strong emphasis -- an accident, not a defence.
+
+     A retry LOOP rather than a per-base counter, because the counter's own
+     output collided with real headings: "Foo", "Foo", "Foo 2" gave the second
+     and third heading the same id, and a duplicate id costs a working index
+     entry (the link map keeps one per key) and sends its anchor to the wrong
+     section.
+
+     document.getElementById covers the ids that exist BY NOW, and measurement
+     is what bounds that claim rather than widens it: a heading titled "Sidebar"
+     or "Toc" used to take the shell's own id, so its index link scrolled to the
+     aside or to the nav instead of to the heading. It does NOT cover the
+     diagram ids. This section is synchronous and the diagram chain is still in
+     flight, so not one of those 54 exists yet when this runs -- which is also
+     why reserving the mmd- box ids by PATTERN below is a separate clause and
+     not a redundant one.
+
+     What that leaves open, said plainly instead of papered over: a heading
+     slugging onto one of the diagram library's unnamespaced ids (arrowhead,
+     crosshead, sequencenumber, clock, database, filled-head, and the
+     payload-derived edge ids) still ends up with an index link that resolves
+     into <defs> -- unrendered, zero-size, going nowhere. Closing it needs
+     either a version-coupled vocabulary to reserve or a prefix on every heading
+     id, and a prefix changes every anchor in the document; neither is this
+     task's to choose.
+
+     The mmd- box ids are reserved anyway, because that collision is
+     destructive rather than merely wrong. Confirmed against the vendored
+     bundle rather than assumed: render() opens by removing the elements whose
+     ids are the box id and that id prefixed with d and with i, so a heading
+     holding one was DELETED from the document on the SUCCESS path, with no
+     error card and no console line. */
+  var used = Object.create(null);
   function slug(s){
     var base = s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section";
-    used[base] = (used[base] || 0) + 1;
-    return used[base] > 1 ? base + "-" + used[base] : base;
+    var id = base, n = 1;
+    while (used[id] || document.getElementById(id) || /^(?:d|i)?mmd-\d+$/.test(id)) {
+      n++; id = base + "-" + n;
+    }
+    used[id] = true;
+    return id;
   }
   var toc = document.getElementById("toc");
   var list = document.createElement("ul");
@@ -1004,8 +1052,20 @@ __BRIEF_B64__
      Nesting h3s under "whichever h2 came last" is why the plan's tasks have
      been stolen in five consecutive review rounds — by an unnested h3, a stray
      h1, a demoted h2, and a setext h2 manufactured from YAML front matter.
-     Each fix removed one trigger and left the mechanism. The sentinel already
-     identifies the plan region exactly, so use it. */
+     Each fix removed one trigger and left the mechanism. The sentinel gives an
+     exact anchor for where the plan STARTS, so use that instead of adjacency.
+
+     Stated plainly, because the earlier wording here claimed more than the code
+     delivers -- the same class of mismatch as an assertion label promising a
+     guarantee its grep never checks: the rule below is "a task-shaped h3 joins
+     the Plan group if it FOLLOWS the plan heading anywhere in the document".
+     There is no upper bound at the next h2. Measured: a task-shaped h3 under a
+     trailing "## Self-Review" is pulled forward into the Plan group, out of
+     document order. This repo's plan template has no task-shaped h3s after the
+     tasks, so nothing triggers it today, and it is deliberately left alone
+     here: Task 15 rewrites this into planRegionHeadings() on the same
+     compareDocumentPosition semantics, so a fix made here would be overwritten
+     one task later. Decide the rule there, at the point of change. */
   var planGroup = null, planKids = null;
 
   /* Three sections, three guards -- not one wrapper around all three. They form
