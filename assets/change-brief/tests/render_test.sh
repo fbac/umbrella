@@ -887,8 +887,6 @@ mirror_chk "Task 12's plan snippet is byte-identical to the shipped template" \
   "$DAG_HEAD" "$S/template.html" "$DAG_HEAD" '  /* ---------- walk-tag badges ---------- */'
 
 echo "== template JS: mermaid contract =="
-chk "async parse-then-render chain" \
-  "$(grep -c 'return mermaid.parse(src)' "$S/template.html")" "1"
 chk "no v8/v9 callback form" \
   "$(grep -c 'mermaid.render(id, src, function' "$S/template.html")" "0"
 chk "strict security level" \
@@ -900,98 +898,124 @@ chk "strict security level" \
 chk "flowchart labels are SVG text, never innerHTML" \
   "$(grep -c 'htmlLabels:false' "$S/template.html")" "1"
 # ...and initialize() is not a control over untrusted content on its own.
-# Mermaid 10.9.1 lets a %%{init: ...}%% directive in the payload override any
-# key absent from its `secure` list, whose stock value omits BOTH keys this
-# file depends on. Reproduced on real render.sh output by two routes -- a
-# payload fence, and a task heading reaching mermaid through Task 12's
-# generated DAG label -- each yielding a live <img src=...>, two
-# <foreignObject> elements, and a render that never settled. Pinned exact:
-# dropping either added key silently reopens the bypass, and no other
-# assertion in this suite can see it.
-chk "htmlLabels and theme are out of reach of a payload init directive" \
-  "$(grep -cF 'secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme"],' "$S/template.html")" "1"
+# Mermaid 10.9.1 lets a %%{init: ...}%% directive -- or the equivalent YAML
+# frontmatter, which funnels through the same addDirective -- override any key
+# absent from its `secure` list, whose stock value omits every key this file
+# depends on. themeCSS is the sharpest: concatenated verbatim into the emitted
+# <style> at top level, checked only for balanced braces, so a payload can add
+# an @font-face plus a rule that uses it and the browser fetches the font from
+# a host of its choosing. Reproduced on real render.sh output by fence, by
+# frontmatter, and through Task 12's generated DAG label. Pinned exact: dropping
+# any one key silently reopens a route, and nothing else in this suite sees it.
+chk "every config key that reaches CSS, markup or a URL is out of directive reach" \
+  "$(grep -cF 'secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme","themeCSS","fontFamily","altFontFamily"],' "$S/template.html")" "1"
 chk "failing pass never clobbers a good render" \
   "$(grep -c 'box.querySelector(".d-light svg")' "$S/template.html")" "1"
 # ...but it must not do so silently. That early return was the only path in the
 # section producing neither a DOM signal nor a console line: a box that is a
 # correct diagram in light and an empty card in dark, with nothing to say why.
 chk "a pass that fails over an existing good render still reports" \
-  "$(grep -cF 'warn("mermaid: " + cls + " pass for an already-rendered diagram", err);' "$S/template.html")" "1"
-# The reduce is sequential, so a box that never settles stalls every later
-# diagram AND the whole second pass, which only starts once the first drains.
-# Measured before the race landed, on a four-diagram brief whose first fence
-# carried the directive above: 0 of 4 diagrams in light, 0 of 4 in dark.
-chk "every render is raced against a timeout" \
-  "$(grep -cF 'raceTimeout(mermaid.render(id, src))' "$S/template.html")" "1"
+  "$(grep -cF 'warn("mermaid: " + pass.cls + " pass for an already-rendered diagram", err);' "$S/template.html")" "1"
+# Mermaid serialises parse AND render through one internal queue drained by
+# `await task()`, and an abandoned task pins it permanently. Racing only render
+# leaves parse as a path along which our own chain never terminates -- traced
+# against the bundle, with render #1 hung a clean diagram's parse #2 was still
+# pending at 3s. Both calls must be raced; assert both, separately, because a
+# single grep for "raceQueue" would pass with either one of them unwrapped.
+chk "parse is raced, not just render" \
+  "$(grep -cF 'raceQueue(mermaid.parse(src), "Parse")' "$S/template.html")" "1"
+chk "render is raced" \
+  "$(grep -cF 'raceQueue(mermaid.render(id, src), "Render")' "$S/template.html")" "1"
 # The race has to REJECT. A timeout that resolved would hand the success branch
 # an undefined result and leave an empty slot with no error card and no console
 # line -- the exact silence the race exists to remove.
 chk "the timeout rejects rather than resolving" \
-  "$(grep -cF 'reject(new Error("Render timed out after ' "$S/template.html")" "1"
+  "$(grep -cF 'reject(new Error(what + " timed out after "' "$S/template.html")" "1"
+# Once one box times out the queue is pinned and no later box can succeed, so
+# waiting the full timeout for each of them is dead time -- four boxes would be
+# 32s of it. The latch is what makes it one timeout per document.
+chk "the first timeout latches the wedge" \
+  "$(grep -cF 'wedged = true;' "$S/template.html")" "1"
+chk "a wedged queue fails the remaining boxes instead of waiting for each" \
+  "$(grep -c 'if (wedged) throw new Error' "$S/template.html")" "1"
+# Both themes for one box before moving to the next. With the wedge permanent,
+# two sweeping passes leave every box before the stall holding a light render
+# and no dark one -- and in dark theme CSS hides .d-light and finds no .d-dark,
+# so a dark reader gets blank cards for diagrams that rendered fine.
+chk "the two theme passes are interleaved per box, not swept per theme" \
+  "$(grep -cF 'var PASSES = [{ theme:"default", cls:"d-light" }, { theme:"dark", cls:"d-dark" }];' "$S/template.html")" "1"
+chk "both passes run inside one per-box reduce" \
+  "$(grep -cF 'return PASSES.reduce(function(chain, pass){' "$S/template.html")" "1"
 # Mermaid removes its temp container only on the success path; both failure
 # exits throw with it still attached to <body>, where it shows mermaid's own
-# error graphic outside .shell, unclassed, in both themes and in print. Its
-# only other cleanup is a later render reusing the same id, which monotonic
-# seq guarantees never happens.
+# error graphic outside .shell, unclassed, in both themes and in print.
 chk "both of mermaid's orphaned temp container ids are cleaned up" \
   "$(grep -cF '["d" + id, "i" + id].forEach(function(orphan){' "$S/template.html")" "1"
-# "on every failure path" is an ordering claim, not a presence one: placed
-# after either early return, the cleanup would skip the two paths that return
-# early and leave the orphan attached. Line numbers are what can see that.
+# "on every failure path" is an ordering claim, not a presence one: placed after
+# the no-clobber early return, the cleanup would skip that path and leave the
+# orphan attached. Line numbers are what can see that.
 orphan_ln=$(grep -n '\["d" + id, "i" + id\].forEach' "$S/template.html" | head -1 | cut -d: -f1)
-early_ln=$(grep -n 'if (box.classList.contains("mermaid-error")) return;' "$S/template.html" | head -1 | cut -d: -f1)
-if [ -n "$orphan_ln" ] && [ -n "$early_ln" ] && [ "$orphan_ln" -lt "$early_ln" ]; then
-  ok "the orphan cleanup runs before both early returns, so it covers every failure path"
+noclob_ln=$(grep -n 'if (box.querySelector(".d-light svg"))' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$orphan_ln" ] && [ -n "$noclob_ln" ] && [ "$orphan_ln" -lt "$noclob_ln" ]; then
+  ok "the orphan cleanup runs before the no-clobber early return, so it covers every failure path"
 else
-  no "the orphan cleanup runs before both early returns, so it covers every failure path" \
-     "cleanup=[${orphan_ln:-missing}] early-return=[${early_ln:-missing}]"
+  no "the orphan cleanup runs before the no-clobber early return, so it covers every failure path" \
+     "cleanup=[${orphan_ln:-missing}] no-clobber=[${noclob_ln:-missing}]"
 fi
 # Containment for the one section this task adds, by label and floor, per the
-# doctrine at the top of the IIFE. The renderer's kick-off is a top-level
-# statement like every other section, so it is guarded like every other section.
+# doctrine at the top of the IIFE.
 chk "guarded: mermaid: start dual-theme render" \
   "$(grep -cF 'guard("mermaid: start dual-theme render"' "$S/template.html")" "1"
 n=$(grep -c 'guard("' "$S/template.html")
 [ "$n" -ge 16 ] && ok "at least 16 top-level sections guarded (floor raised by this task)" \
   || no "at least 16 top-level sections guarded (floor raised by this task)" "$n"
-# guard() is synchronous-only. It sees a throw out of the FIRST renderPass call
-# and nothing after the first tick, so on its own it leaves two holes: a
-# rejection from the light pass's reduce chain, and the SECOND renderPass call,
-# which runs inside a .then callback where guard() has already returned. Both
-# surface as unhandled rejections -- no label, nothing the console can pin on
-# this file. The terminal .catch is what closes them. Pinned by its chain-level
-# indent, which is what distinguishes it from the per-box .catch above.
+# guard() is synchronous-only. It sees the querySelectorAll and the reduce that
+# builds the chain, and nothing after the first tick -- every mermaid.initialize
+# now runs inside a .then, per box and per theme, where a throw is a rejection
+# guard() structurally cannot see. Without a terminal .catch those surface as
+# unhandled rejections: no label, nothing the console can pin on this file.
 chk "the render chain has a terminal catch, not just a guard" \
   "$(grep -cF '      .catch(function(e){' "$S/template.html")" "1"
 chk "the terminal catch reports through warn(), like every guarded section" \
   "$(grep -cF 'warn("mermaid: dual-theme render chain", e);' "$S/template.html")" "1"
-# ...and it has to be chained AFTER the dark pass, or it covers the light pass
-# only and the second pass is back to an unhandled rejection. Presence greps
-# cannot see chain order; line numbers can.
-darkpass_ln=$(grep -n 'return renderPass("dark", "d-dark");' "$S/template.html" | head -1 | cut -d: -f1)
+# ...and it has to be chained after the reduce, or it covers only part of the
+# run. Presence greps cannot see chain order; line numbers can.
+reduce_ln=$(grep -n 'return chain.then(function(){ return renderBox(box); });' "$S/template.html" | head -1 | cut -d: -f1)
 mmcatch_ln=$(grep -n 'warn("mermaid: dual-theme render chain"' "$S/template.html" | head -1 | cut -d: -f1)
-if [ -n "$darkpass_ln" ] && [ -n "$mmcatch_ln" ] && [ "$darkpass_ln" -lt "$mmcatch_ln" ]; then
-  ok "the terminal catch is chained after the dark pass, so it covers both passes"
+if [ -n "$reduce_ln" ] && [ -n "$mmcatch_ln" ] && [ "$reduce_ln" -lt "$mmcatch_ln" ]; then
+  ok "the terminal catch is chained after the per-box reduce, so it covers the whole run"
 else
-  no "the terminal catch is chained after the dark pass, so it covers both passes" \
-     "dark=[${darkpass_ln:-missing}] catch=[${mmcatch_ln:-missing}]"
+  no "the terminal catch is chained after the per-box reduce, so it covers the whole run" \
+     "reduce=[${reduce_ln:-missing}] catch=[${mmcatch_ln:-missing}]"
 fi
-# Completion marker for the walk harness (Task 17): waitForSelector beats a
-# fixed waitForTimeout, and it is the only thing that can tell "slow" apart
-# from "stalled". Two, not one -- marked on the failure path as well, since a
-# marker that appeared only on success hands the harness back the same
-# ambiguity it exists to remove.
-chk "the run announces completion on every path that ends it" \
-  "$(grep -c 'root.setAttribute("data-diagrams"' "$S/template.html")" "3"
-# The third is not padding. A guard()-caught synchronous throw means the chain
-# never starts, so neither .then nor .catch can ever run -- observed at 63s with
-# the attribute still absent, i.e. a harness waiting on it hangs on the one path
-# that is already a hard failure. Pin the synchronous fallback by itself.
+# One writer for the marker, so the run-level deadline cannot overwrite a real
+# verdict and a late completion cannot overwrite the deadline's.
+chk "the completion marker has exactly one writer" \
+  "$(grep -c 'root.setAttribute("data-diagrams"' "$S/template.html")" "1"
+chk "first writer wins, so the marker never flaps" \
+  "$(grep -cF 'if (!root.hasAttribute("data-diagrams")) root.setAttribute("data-diagrams", state);' "$S/template.html")" "1"
+# Four states, because four things genuinely differ, and a harness that cannot
+# tell them apart is back to the ambiguity the marker exists to remove:
+# the run finished; it died; it never finished; mermaid was never on the page.
+# Counts, not mere presence: "failed" is written from two distinct sites -- the
+# terminal .catch and the synchronous fallback for a guard()-caught throw -- and
+# an assertion expecting one of them would have to be relaxed to hide the other,
+# which is how a real site goes missing unnoticed.
+for pair in "done:1" "failed:2" "stalled:1" "unavailable:1"; do
+  st=${pair%%:*}; want=${pair##*:}
+  chk "run state marked: $st (x$want)" "$(grep -c "markRun(\"$st\")" "$S/template.html")" "$want"
+done
+# A guard()-caught synchronous throw means the chain never starts, so neither
+# .then nor .catch can run -- observed at 63s with the attribute still absent.
 chk "a guard()-caught throw still ends with a marker, not silence" \
-  "$(grep -cF 'if (!diagramsStarted) root.setAttribute("data-diagrams", "failed");' "$S/template.html")" "1"
-# Same mirror as Task 12's, for the same reason: this task's snippet was edited
-# in the plan (the bare kick-off call gained its guard), so plan and template
-# can now drift, and nothing else in this suite can see it.
+  "$(grep -cF 'if (!diagramsStarted) { markRun("failed"); clearTimeout(runDeadline); }' "$S/template.html")" "1"
+# Wedge detection already bounds a stalled run to one timeout, but this section
+# has twice been certain a class of hang was closed and been wrong.
+chk "a run-level deadline marks the run even if nothing else does" \
+  "$(grep -cF 'var runDeadline = setTimeout(function(){ markRun("stalled"); }, RUN_DEADLINE_MS);' "$S/template.html")" "1"
+# Same mirror as Task 12's, for the same reason: this task's snippet has been
+# edited in the plan more than once, so plan and template can drift and nothing
+# else in this suite can see it.
 #
 # NOTE FOR TASK 14: the stop marker below is the IIFE's closing "})();" only
 # because this renderer is currently the last section in the file. Task 14

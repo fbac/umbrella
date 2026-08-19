@@ -2053,7 +2053,14 @@ Mermaid v10 is async-only: the v8/v9 callback form produces no output and no exc
 - With `flowchart: { htmlLabels: false }`, the same labels produce zero `<img>` elements, zero `<foreignObject>` elements, and the render settles instead of hanging — **provided the payload cannot put the setting back.** It could.
 - **`initialize()` is not, on its own, a control over untrusted content.** Mermaid 10.9.1 protects exactly the keys on its `secure` list, read out of the vendored bundle as `["secure","securityLevel","startOnLoad","maxTextSize","maxEdges"]`. `flowchart.htmlLabels` and `theme` are absent from it, and the sanitiser applies that list recursively at every depth, so a payload-supplied `%%{init: {"flowchart": {"htmlLabels": true}}}%%` directive overrides whatever `initialize` set. Reproduced end-to-end on real `render.sh` output by two independent routes: a mermaid fence in the payload, and a task heading reaching mermaid through Task 12's generated node label — where `label.replace(/["]/g, "'")` fails to disarm it, because mermaid's directive parser accepts single quotes. Each produced a live `<img src=…>` attached to the document, two `<foreignObject>` elements, and a render that never settled.
 - **`securityLevel` *is* on that list**, so a `"securityLevel":"loose"` directive is refused and DOMPurify still strips `onerror`. This is a beacon plus denial-of-render, not script execution.
-- Adding `"htmlLabels"` and `"theme"` to the `secure` list closes both routes completely: zero `<img>`, zero `<foreignObject>`, and every diagram rendering in both themes with the correct per-theme colours (`#333` light, `#ccc` dark — confirming the list constrains directives only, not `initialize`'s own config). `"theme"` earns its place independently of the beacon: a `%%{init:{"theme":"dark"}}%%` fence makes the **light** slot paint with dark-theme colours, and print forces `.d-light`, so a payload can otherwise make a diagram illegible on paper.
+- **`themeCSS` is the same beacon with a lower bar, and it survived the round that closed those two.** It is in the default config, so it passes the key allowlist; it is not on the `secure` list; and its only value check is a brace-balance test, which text containing no braces passes trivially. It is then concatenated **verbatim, at top level, outside any block** into the `<style>` that DOMPurify keeps. Reproduced live and `isConnected` by all three routes — payload fence, YAML frontmatter (which funnels through the same `addDirective`), and a task heading through the generated DAG label:
+  ```
+  @font-face{font-family:pwn;src:url(https://evil.example.invalid/p.woff2);}
+  ```
+  It needs neither `htmlLabels` nor a `<foreignObject>`, which is exactly why it survived a round that was framed as "are these two routes closed?" rather than "what is the class?".
+- `fontFamily` and `altFontFamily` reach the same stylesheet but land inside a `:root { }` block, and the brace-balance check stops them escaping it — verified by attempting exactly that escape. They are pinned anyway, because they are the same sink.
+- **What the class is, checked rather than assumed.** The emitted `<style>` is assembled from exactly three config keys — `themeCSS`, `fontFamily`, `altFontFamily` — plus `themeVariables.*`, which is charset-restricted to `/^[\d "#%(),.;A-Za-z]+$/` and so cannot spell `:` or `/`. A battery across flowchart, sequence, ER, C4, requirement, sankey, gantt, journey and gitGraph found nothing else reaching a stylesheet. Three keys do put payload text into *attributes* — `er.stroke` and `sankey.linkColor` as `stroke="url(remote)"`, and the diagram-specific `*FontFamily` keys as `font-family="…"` — but at-rules are inert in an attribute value and browsers do not fetch external SVG paint servers, so none is a beacon. Directives were also checked for leaking between fences and between passes: they do not.
+- Pinning `"htmlLabels"`, `"theme"`, `"themeCSS"`, `"fontFamily"` and `"altFontFamily"` closes every route found: zero `<img>`, zero `<foreignObject>`, zero live `<style>` carrying the payload host, with every diagram still rendering in both themes at the correct per-theme colours (`#333` light, `#ccc` dark — confirming the list constrains directives only, not `initialize`'s own config, and that `fontFamily:"inherit"` still applies). `"theme"` earns its place independently: a `%%{init:{"theme":"dark"}}%%` fence makes the **light** slot paint with dark-theme colours, and print forces `.d-light`.
 
 **Inferred, and still unconfirmed: only the fetch itself** — that the browser, having been handed a live `<img src>` pointing at a payload-supplied URL, then requests it. Everything up to and including that element in the document is observed; the request is not.
 
@@ -2061,11 +2068,21 @@ Mermaid v10 is async-only: the v8/v9 callback form produces no output and no exc
 
 The fix does not wait on that confirmation, and stays right even if the fetch never fires: a document whose entire premise is inertness must not hand un-escaped payload text to a renderer that constructs live elements out of it. That is also a door Task 9 never covered — Task 9 escapes payload HTML at parse time so the DOM holds the literal string, and Tasks 11 and 12 are the first paths that hand that literal *back* to a renderer which un-escapes it. Setting it in `initialize`, **and pinning it there with the `secure` list**, covers Task 11's fence extraction and Task 12's derived graph in one place.
 
-One more consequence, recorded because the renderer below is a sequential `boxes.reduce(chain.then(...))`: a box whose render promise never settles stalls every later diagram and the whole second pass. The `<img>`-bearing label above is exactly that case, and the cause is understood rather than merely observed — the constructed image element is awaiting a load that never arrives, so the render never resolves.
+One more consequence, recorded because the renderer below walks its boxes sequentially: a box whose render promise never settles stalls every later diagram and both of its theme passes. The `<img>`-bearing label above is exactly that case. The *dependency* is observed — `htmlLabels:true` with a plain label completes in 102ms, and only the image-bearing label hangs — but the **mechanism is inferred, not observed**: the bundle contains no image-load await on the flowchart path (zero `onload` handlers; its sole `new Image` belongs to cytoscape), so "the constructed image element is awaiting a load that never arrives" remains a plausible story rather than a traced one.
 
-That is not a hypothetical waiting on a future change: until the `secure` list landed, a payload could reach it on purpose. Measured on a four-diagram brief whose first fence carried the directive, **0 of 4 diagrams rendered in light and 0 of 4 in dark** — four empty bordered boxes, no error box, console silent — because pass 2 only begins once pass 1 has fully drained. So both defences ship together, and they are not redundant: the `secure` list removes the known trigger, and racing each render against an 8-second timeout removes the whole class, turning any box that hangs for any other reason into one error card while the chain continues. Verified against an injected never-settling render: the brief settles in 8.1s with three of four diagrams in both themes and the fourth showing `Render timed out after 8000ms` above its source.
+That is not a hypothetical waiting on a future change: until the `secure` list landed, a payload could reach it on purpose. Measured on a four-diagram brief whose first fence carried the directive, **0 of 4 diagrams rendered in light and 0 of 4 in dark** — four empty bordered boxes, no error box, console silent.
 
-Interleaving the two passes per box was considered and **declined**: a hung box would still block every later box in both themes, so it shrinks the blast radius without fixing the stall, whereas the race fixes it outright. Do not re-propose it.
+**The reason is worse than "the chain is sequential", and an earlier draft of this paragraph got it wrong.** Mermaid serialises *every* `parse` and `render` through one internal queue drained by `await task()`. A task that never settles is abandoned, not cancelled, so it pins that queue permanently: after one stall nothing can render again, in either theme, for the life of the page. Traced against the vendored bundle — with render #1 hung, a completely clean diagram's parse #2 is still pending at 3s.
+
+Three things follow, and each is load-bearing:
+
+- **Race `parse` as well as `render`.** They share the queue, so an un-raced `parse` is a path along which our own chain never terminates. Racing only `render`, as an earlier version did, converts a silent stall into one error card *plus a still-stalled document*: measured end-to-end on real `render.sh` output with a genuine mermaid stall, one error card at 8.0s and then `light=0 dark=0`, marker never set, **still hung at 62s**.
+- **Latch the wedge and short-circuit.** Once one box times out no later box can succeed, so waiting the full timeout for each is dead time — four boxes would be 32s. The first timeout sets a flag and every remaining box gets its error card immediately. One timeout per document, not one per box: the same four-diagram brief now settles at **8.0s** with four honest error cards.
+- **Interleave the two theme passes per box** — light then dark for box 0, then box 1, and so on — rather than sweeping all boxes in light and then all in dark. With the wedge permanent this is not a micro-optimisation. Under two sweeping passes a stall partway through leaves every earlier box holding a light render and no dark one, and in dark theme the CSS hides `.d-light` and finds no `.d-dark`, so **a dark-theme reader gets blank cards for diagrams that rendered perfectly**. Measured on a four-diagram brief stalling at the third fence: sweeping passes give `light=2 dark=0`, interleaved gives `light=2 dark=2`.
+
+Interleaving was **declined in an earlier round on a reason that was simply wrong** — that the race already fixed the stall outright, so interleaving would only shrink the blast radius. The race does not fix the stall, so blast radius is the whole question. It was then weighed on its own merits and adopted: it costs one extra `mermaid.initialize` per box per theme, measured at 0.47ms a call (about 5ms on a six-diagram brief); it does not affect print, which forces `.d-light` and sees the same set of light renders either way; and it does not affect walk case 11's duplicate-id question, because a fragment reference resolves to the first match in document order, which is box 0's *light* marker under both orderings.
+
+Belt and braces on top of all three: a run-level deadline marks the run regardless, so `data-diagrams` means "the run ended" on every path. The marker carries four values — `done`, `failed`, `stalled`, `unavailable` — because four outcomes genuinely differ, and a harness that cannot tell them apart is back in the ambiguity the marker exists to remove.
 
 **Files:**
 - Modify: `assets/change-brief/template.html`
@@ -2076,8 +2093,6 @@ Append to `assets/change-brief/tests/render_test.sh`, before the final `echo`:
 
 ```bash
 echo "== template JS: mermaid contract =="
-chk "async parse-then-render chain" \
-  "$(grep -c 'return mermaid.parse(src)' "$S/template.html")" "1"
 chk "no v8/v9 callback form" \
   "$(grep -c 'mermaid.render(id, src, function' "$S/template.html")" "0"
 chk "strict security level" \
@@ -2089,98 +2104,124 @@ chk "strict security level" \
 chk "flowchart labels are SVG text, never innerHTML" \
   "$(grep -c 'htmlLabels:false' "$S/template.html")" "1"
 # ...and initialize() is not a control over untrusted content on its own.
-# Mermaid 10.9.1 lets a %%{init: ...}%% directive in the payload override any
-# key absent from its `secure` list, whose stock value omits BOTH keys this
-# file depends on. Reproduced on real render.sh output by two routes -- a
-# payload fence, and a task heading reaching mermaid through Task 12's
-# generated DAG label -- each yielding a live <img src=...>, two
-# <foreignObject> elements, and a render that never settled. Pinned exact:
-# dropping either added key silently reopens the bypass, and no other
-# assertion in this suite can see it.
-chk "htmlLabels and theme are out of reach of a payload init directive" \
-  "$(grep -cF 'secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme"],' "$S/template.html")" "1"
+# Mermaid 10.9.1 lets a %%{init: ...}%% directive -- or the equivalent YAML
+# frontmatter, which funnels through the same addDirective -- override any key
+# absent from its `secure` list, whose stock value omits every key this file
+# depends on. themeCSS is the sharpest: concatenated verbatim into the emitted
+# <style> at top level, checked only for balanced braces, so a payload can add
+# an @font-face plus a rule that uses it and the browser fetches the font from
+# a host of its choosing. Reproduced on real render.sh output by fence, by
+# frontmatter, and through Task 12's generated DAG label. Pinned exact: dropping
+# any one key silently reopens a route, and nothing else in this suite sees it.
+chk "every config key that reaches CSS, markup or a URL is out of directive reach" \
+  "$(grep -cF 'secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme","themeCSS","fontFamily","altFontFamily"],' "$S/template.html")" "1"
 chk "failing pass never clobbers a good render" \
   "$(grep -c 'box.querySelector(".d-light svg")' "$S/template.html")" "1"
 # ...but it must not do so silently. That early return was the only path in the
 # section producing neither a DOM signal nor a console line: a box that is a
 # correct diagram in light and an empty card in dark, with nothing to say why.
 chk "a pass that fails over an existing good render still reports" \
-  "$(grep -cF 'warn("mermaid: " + cls + " pass for an already-rendered diagram", err);' "$S/template.html")" "1"
-# The reduce is sequential, so a box that never settles stalls every later
-# diagram AND the whole second pass, which only starts once the first drains.
-# Measured before the race landed, on a four-diagram brief whose first fence
-# carried the directive above: 0 of 4 diagrams in light, 0 of 4 in dark.
-chk "every render is raced against a timeout" \
-  "$(grep -cF 'raceTimeout(mermaid.render(id, src))' "$S/template.html")" "1"
+  "$(grep -cF 'warn("mermaid: " + pass.cls + " pass for an already-rendered diagram", err);' "$S/template.html")" "1"
+# Mermaid serialises parse AND render through one internal queue drained by
+# `await task()`, and an abandoned task pins it permanently. Racing only render
+# leaves parse as a path along which our own chain never terminates -- traced
+# against the bundle, with render #1 hung a clean diagram's parse #2 was still
+# pending at 3s. Both calls must be raced; assert both, separately, because a
+# single grep for "raceQueue" would pass with either one of them unwrapped.
+chk "parse is raced, not just render" \
+  "$(grep -cF 'raceQueue(mermaid.parse(src), "Parse")' "$S/template.html")" "1"
+chk "render is raced" \
+  "$(grep -cF 'raceQueue(mermaid.render(id, src), "Render")' "$S/template.html")" "1"
 # The race has to REJECT. A timeout that resolved would hand the success branch
 # an undefined result and leave an empty slot with no error card and no console
 # line -- the exact silence the race exists to remove.
 chk "the timeout rejects rather than resolving" \
-  "$(grep -cF 'reject(new Error("Render timed out after ' "$S/template.html")" "1"
+  "$(grep -cF 'reject(new Error(what + " timed out after "' "$S/template.html")" "1"
+# Once one box times out the queue is pinned and no later box can succeed, so
+# waiting the full timeout for each of them is dead time -- four boxes would be
+# 32s of it. The latch is what makes it one timeout per document.
+chk "the first timeout latches the wedge" \
+  "$(grep -cF 'wedged = true;' "$S/template.html")" "1"
+chk "a wedged queue fails the remaining boxes instead of waiting for each" \
+  "$(grep -c 'if (wedged) throw new Error' "$S/template.html")" "1"
+# Both themes for one box before moving to the next. With the wedge permanent,
+# two sweeping passes leave every box before the stall holding a light render
+# and no dark one -- and in dark theme CSS hides .d-light and finds no .d-dark,
+# so a dark reader gets blank cards for diagrams that rendered fine.
+chk "the two theme passes are interleaved per box, not swept per theme" \
+  "$(grep -cF 'var PASSES = [{ theme:"default", cls:"d-light" }, { theme:"dark", cls:"d-dark" }];' "$S/template.html")" "1"
+chk "both passes run inside one per-box reduce" \
+  "$(grep -cF 'return PASSES.reduce(function(chain, pass){' "$S/template.html")" "1"
 # Mermaid removes its temp container only on the success path; both failure
 # exits throw with it still attached to <body>, where it shows mermaid's own
-# error graphic outside .shell, unclassed, in both themes and in print. Its
-# only other cleanup is a later render reusing the same id, which monotonic
-# seq guarantees never happens.
+# error graphic outside .shell, unclassed, in both themes and in print.
 chk "both of mermaid's orphaned temp container ids are cleaned up" \
   "$(grep -cF '["d" + id, "i" + id].forEach(function(orphan){' "$S/template.html")" "1"
-# "on every failure path" is an ordering claim, not a presence one: placed
-# after either early return, the cleanup would skip the two paths that return
-# early and leave the orphan attached. Line numbers are what can see that.
+# "on every failure path" is an ordering claim, not a presence one: placed after
+# the no-clobber early return, the cleanup would skip that path and leave the
+# orphan attached. Line numbers are what can see that.
 orphan_ln=$(grep -n '\["d" + id, "i" + id\].forEach' "$S/template.html" | head -1 | cut -d: -f1)
-early_ln=$(grep -n 'if (box.classList.contains("mermaid-error")) return;' "$S/template.html" | head -1 | cut -d: -f1)
-if [ -n "$orphan_ln" ] && [ -n "$early_ln" ] && [ "$orphan_ln" -lt "$early_ln" ]; then
-  ok "the orphan cleanup runs before both early returns, so it covers every failure path"
+noclob_ln=$(grep -n 'if (box.querySelector(".d-light svg"))' "$S/template.html" | head -1 | cut -d: -f1)
+if [ -n "$orphan_ln" ] && [ -n "$noclob_ln" ] && [ "$orphan_ln" -lt "$noclob_ln" ]; then
+  ok "the orphan cleanup runs before the no-clobber early return, so it covers every failure path"
 else
-  no "the orphan cleanup runs before both early returns, so it covers every failure path" \
-     "cleanup=[${orphan_ln:-missing}] early-return=[${early_ln:-missing}]"
+  no "the orphan cleanup runs before the no-clobber early return, so it covers every failure path" \
+     "cleanup=[${orphan_ln:-missing}] no-clobber=[${noclob_ln:-missing}]"
 fi
 # Containment for the one section this task adds, by label and floor, per the
-# doctrine at the top of the IIFE. The renderer's kick-off is a top-level
-# statement like every other section, so it is guarded like every other section.
+# doctrine at the top of the IIFE.
 chk "guarded: mermaid: start dual-theme render" \
   "$(grep -cF 'guard("mermaid: start dual-theme render"' "$S/template.html")" "1"
 n=$(grep -c 'guard("' "$S/template.html")
 [ "$n" -ge 16 ] && ok "at least 16 top-level sections guarded (floor raised by this task)" \
   || no "at least 16 top-level sections guarded (floor raised by this task)" "$n"
-# guard() is synchronous-only. It sees a throw out of the FIRST renderPass call
-# and nothing after the first tick, so on its own it leaves two holes: a
-# rejection from the light pass's reduce chain, and the SECOND renderPass call,
-# which runs inside a .then callback where guard() has already returned. Both
-# surface as unhandled rejections -- no label, nothing the console can pin on
-# this file. The terminal .catch is what closes them. Pinned by its chain-level
-# indent, which is what distinguishes it from the per-box .catch above.
+# guard() is synchronous-only. It sees the querySelectorAll and the reduce that
+# builds the chain, and nothing after the first tick -- every mermaid.initialize
+# now runs inside a .then, per box and per theme, where a throw is a rejection
+# guard() structurally cannot see. Without a terminal .catch those surface as
+# unhandled rejections: no label, nothing the console can pin on this file.
 chk "the render chain has a terminal catch, not just a guard" \
   "$(grep -cF '      .catch(function(e){' "$S/template.html")" "1"
 chk "the terminal catch reports through warn(), like every guarded section" \
   "$(grep -cF 'warn("mermaid: dual-theme render chain", e);' "$S/template.html")" "1"
-# ...and it has to be chained AFTER the dark pass, or it covers the light pass
-# only and the second pass is back to an unhandled rejection. Presence greps
-# cannot see chain order; line numbers can.
-darkpass_ln=$(grep -n 'return renderPass("dark", "d-dark");' "$S/template.html" | head -1 | cut -d: -f1)
+# ...and it has to be chained after the reduce, or it covers only part of the
+# run. Presence greps cannot see chain order; line numbers can.
+reduce_ln=$(grep -n 'return chain.then(function(){ return renderBox(box); });' "$S/template.html" | head -1 | cut -d: -f1)
 mmcatch_ln=$(grep -n 'warn("mermaid: dual-theme render chain"' "$S/template.html" | head -1 | cut -d: -f1)
-if [ -n "$darkpass_ln" ] && [ -n "$mmcatch_ln" ] && [ "$darkpass_ln" -lt "$mmcatch_ln" ]; then
-  ok "the terminal catch is chained after the dark pass, so it covers both passes"
+if [ -n "$reduce_ln" ] && [ -n "$mmcatch_ln" ] && [ "$reduce_ln" -lt "$mmcatch_ln" ]; then
+  ok "the terminal catch is chained after the per-box reduce, so it covers the whole run"
 else
-  no "the terminal catch is chained after the dark pass, so it covers both passes" \
-     "dark=[${darkpass_ln:-missing}] catch=[${mmcatch_ln:-missing}]"
+  no "the terminal catch is chained after the per-box reduce, so it covers the whole run" \
+     "reduce=[${reduce_ln:-missing}] catch=[${mmcatch_ln:-missing}]"
 fi
-# Completion marker for the walk harness (Task 17): waitForSelector beats a
-# fixed waitForTimeout, and it is the only thing that can tell "slow" apart
-# from "stalled". Two, not one -- marked on the failure path as well, since a
-# marker that appeared only on success hands the harness back the same
-# ambiguity it exists to remove.
-chk "the run announces completion on every path that ends it" \
-  "$(grep -c 'root.setAttribute("data-diagrams"' "$S/template.html")" "3"
-# The third is not padding. A guard()-caught synchronous throw means the chain
-# never starts, so neither .then nor .catch can ever run -- observed at 63s with
-# the attribute still absent, i.e. a harness waiting on it hangs on the one path
-# that is already a hard failure. Pin the synchronous fallback by itself.
+# One writer for the marker, so the run-level deadline cannot overwrite a real
+# verdict and a late completion cannot overwrite the deadline's.
+chk "the completion marker has exactly one writer" \
+  "$(grep -c 'root.setAttribute("data-diagrams"' "$S/template.html")" "1"
+chk "first writer wins, so the marker never flaps" \
+  "$(grep -cF 'if (!root.hasAttribute("data-diagrams")) root.setAttribute("data-diagrams", state);' "$S/template.html")" "1"
+# Four states, because four things genuinely differ, and a harness that cannot
+# tell them apart is back to the ambiguity the marker exists to remove:
+# the run finished; it died; it never finished; mermaid was never on the page.
+# Counts, not mere presence: "failed" is written from two distinct sites -- the
+# terminal .catch and the synchronous fallback for a guard()-caught throw -- and
+# an assertion expecting one of them would have to be relaxed to hide the other,
+# which is how a real site goes missing unnoticed.
+for pair in "done:1" "failed:2" "stalled:1" "unavailable:1"; do
+  st=${pair%%:*}; want=${pair##*:}
+  chk "run state marked: $st (x$want)" "$(grep -c "markRun(\"$st\")" "$S/template.html")" "$want"
+done
+# A guard()-caught synchronous throw means the chain never starts, so neither
+# .then nor .catch can run -- observed at 63s with the attribute still absent.
 chk "a guard()-caught throw still ends with a marker, not silence" \
-  "$(grep -cF 'if (!diagramsStarted) root.setAttribute("data-diagrams", "failed");' "$S/template.html")" "1"
-# Same mirror as Task 12's, for the same reason: this task's snippet was edited
-# in the plan (the bare kick-off call gained its guard), so plan and template
-# can now drift, and nothing else in this suite can see it.
+  "$(grep -cF 'if (!diagramsStarted) { markRun("failed"); clearTimeout(runDeadline); }' "$S/template.html")" "1"
+# Wedge detection already bounds a stalled run to one timeout, but this section
+# has twice been certain a class of hang was closed and been wrong.
+chk "a run-level deadline marks the run even if nothing else does" \
+  "$(grep -cF 'var runDeadline = setTimeout(function(){ markRun("stalled"); }, RUN_DEADLINE_MS);' "$S/template.html")" "1"
+# Same mirror as Task 12's, for the same reason: this task's snippet has been
+# edited in the plan more than once, so plan and template can drift and nothing
+# else in this suite can see it.
 #
 # NOTE FOR TASK 14: the stop marker below is the IIFE's closing "})();" only
 # because this renderer is currently the last section in the file. Task 14
@@ -2195,7 +2236,7 @@ mirror_chk "Task 13's plan snippet is byte-identical to the shipped template" \
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: eighteen FAILs, exit 1. (Eighteen of the nineteen; "no v8/v9 callback form" expects a count of zero and so passes before the renderer exists at all.)
+Expected: twenty-eight FAILs, exit 1. (Twenty-eight of the twenty-nine; "no v8/v9 callback form" expects a count of zero and so passes before the renderer exists at all.)
 
 - [ ] **Step 3: Add the dual-pass renderer**
 
@@ -2205,36 +2246,39 @@ Append inside the IIFE, after the per-task progress section:
   /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */
   var seq = 0;
 
-  /* A box whose render never settles must not take the document with it. This
-     renderer is a sequential reduce, so one hung box stalls every later diagram
-     AND the entire second pass, which only begins once the first has drained.
-     Measured on a four-diagram brief whose first fence carried the init
-     directive described below: 0 of 4 diagrams in light, 0 of 4 in dark, four
-     empty bordered boxes, nothing in the console. Racing each render turns that
-     into one error card and lets the chain continue.
+  /* Mermaid serialises EVERY parse and render through one internal queue, drained
+     by `await task()`. A task that never settles is abandoned, not cancelled, so
+     it pins that queue permanently: after one stall nothing can render again, in
+     either theme. Traced against the vendored bundle — with render #1 hung, a
+     completely clean diagram's parse #2 is still pending at 3s.
 
-     Considered and declined: interleaving the two passes per box. It shrinks
-     the blast radius but does not fix the stall — a hung box still blocks every
-     later box in both themes — whereas the race removes the stall outright.
-     Do not re-propose it as an alternative to this.
+     Two things follow, and both are structural rather than cautionary:
 
-     8000ms is chosen against measurement, not taste. Mermaid renders locally
-     with no network fetch and refuses graphs past its own maxEdges/maxTextSize
-     limits, so there is no legitimate mechanism by which a render takes
-     seconds: a typical diagram in this format settles in 9-32ms, and a
-     deliberately oversized 121-node flowchart — far larger than any brief
-     produces — in 217ms. 8s is roughly 36x that worst case, so a slow or
-     throttled machine cannot false-positive and destroy a good diagram, while
-     still sitting inside the window where a reader is waiting rather than
-     concluding the page is broken. */
+     1. Racing only `render` is not enough. `parse` goes through the same queue,
+        so an un-raced parse is a path along which our own chain never terminates.
+        Both are raced.
+     2. Once one box has timed out, no later box can succeed. Waiting the full
+        timeout for each of them is pure dead time — four boxes would be 32s of it
+        — so the first timeout latches `wedged` and every remaining box fails
+        immediately. One timeout per document, not one per box.
+
+     8000ms is chosen against measurement. A typical diagram in this format
+     settles in 9-32ms and a deliberately oversized 121-node flowchart, far larger
+     than any brief produces, in 217ms; 8s is ~36x that worst case, so a slow or
+     throttled machine cannot false-positive and destroy a good diagram. Note this
+     is a layout budget, not a network one: a payload can put a remote url() into
+     the emitted stylesheet only through the config keys the `secure` list below
+     pins, and a font or image fetch does not block the render promise anyway. */
+  var wedged = false;
   var RENDER_TIMEOUT_MS = 8000;
-  function raceTimeout(p){
+  function raceQueue(p, what){
     return new Promise(function(resolve, reject){
       /* Rejects, never resolves. A timeout that resolved would hand the success
          branch an undefined result and leave an empty slot behind with no error
          card and no console line — the silent failure this section refuses. */
       var timer = setTimeout(function(){
-        reject(new Error("Render timed out after " + RENDER_TIMEOUT_MS + "ms"));
+        wedged = true;
+        reject(new Error(what + " timed out after " + RENDER_TIMEOUT_MS + "ms"));
       }, RENDER_TIMEOUT_MS);
       Promise.resolve(p).then(
         function(v){ clearTimeout(timer); resolve(v); },
@@ -2243,48 +2287,73 @@ Append inside the IIFE, after the per-task progress section:
     });
   }
 
-  function renderPass(themeName, cls){
-    if (typeof mermaid === "undefined") return Promise.resolve();
-    mermaid.initialize({
-      startOnLoad:false, securityLevel:"strict",
-      /* initialize() is not, on its own, a control over untrusted content.
-         Mermaid 10.9.1 lets a %%{init: ...}%% directive inside a fence override
-         any config key absent from the `secure` list, and its stock list —
-         ["secure","securityLevel","startOnLoad","maxTextSize","maxEdges"] —
-         omits both of the keys this file depends on. Extending the list is what
-         turns them into controls; the sanitiser walks a directive recursively at
-         every depth, so naming the leaf key is enough.
+  /* Both themes for ONE box before moving to the next, rather than one theme
+     across every box before starting the other. That ordering is load-bearing
+     now that the queue wedge above is known to be permanent: with two sweeping
+     passes, a stall partway through leaves every earlier box holding a light
+     render and no dark one, and in dark theme CSS hides .d-light and finds no
+     .d-dark — so a reader in dark mode gets blank cards for diagrams that
+     rendered perfectly. Interleaved, every box before the stall is complete in
+     both themes and only the stalled box and its successors degrade.
 
-         Observed against this exact bundle, on real render.sh output, by two
-         independent routes: a mermaid fence in the payload, and a task heading
-         reaching mermaid through the generated dependency graph's node label
-         (single quotes survive buildDag's double-quote replacement). Both
-         produced a live <img src=...> attached to the document, two
-         <foreignObject> elements, and a render that never settled — hence zero
-         diagrams in either theme, no error box, and a silent console.
-         securityLevel IS on the stock list, so a "loose" directive is refused
-         and DOMPurify still strips event handlers: this was a beacon plus
-         denial-of-render, not script execution. theme belongs here on its own
-         merits too — a theme directive makes the LIGHT slot paint with
-         dark-theme colours, which print, forcing .d-light, then reproduces. */
-      secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme"],
-      /* Labels as SVG text, not innerHTML. See this task's preamble: at strict,
-         v10 still inserts flowchart labels as HTML and DOMPurify keeps <img>,
-         so an image tag in a task heading fires a real network request out of a
-         file whose whole premise is inertness. */
-      flowchart:{ htmlLabels:false },
-      theme: themeName, fontFamily:"inherit"
-    });
-    var boxes = Array.prototype.slice.call(document.querySelectorAll("[data-src]"));
-    return boxes.reduce(function(chain, box){
+     It is not free and it is not neutral in every direction, so both were
+     checked: it costs one extra mermaid.initialize per box per theme, measured
+     at 0.47ms a call — about 5ms on a six-diagram brief. It does not affect
+     print, which forces .d-light and sees the same set of light renders either
+     way. And it does not affect the duplicate-unnamespaced-id question in walk
+     case 11: a fragment reference resolves to the first match in document order,
+     which is box 0's LIGHT marker under both orderings, since both begin with
+     that box's light render. */
+  var PASSES = [{ theme:"default", cls:"d-light" }, { theme:"dark", cls:"d-dark" }];
+
+  function renderBox(box){
+    var src = box.dataset.src;
+    return PASSES.reduce(function(chain, pass){
       return chain.then(function(){
-        var src = box.dataset.src, id = "mmd-" + (seq++);
+        /* An earlier pass failed and turned this box into an error card, which
+           also dropped its data-src. Nothing left for this pass to do. */
+        if (box.classList.contains("mermaid-error")) return;
+        var id = "mmd-" + (seq++);
         return Promise.resolve()
-          .then(function(){ return mermaid.parse(src); })
-          .then(function(){ return raceTimeout(mermaid.render(id, src)); })
+          .then(function(){
+            if (wedged) throw new Error("Skipped: an earlier diagram timed out and mermaid's render queue does not recover");
+            mermaid.initialize({
+              startOnLoad:false, securityLevel:"strict",
+              /* initialize() is not, on its own, a control over untrusted
+                 content. Mermaid 10.9.1 lets a %%{init: ...}%% directive — or an
+                 equivalent YAML frontmatter block, which funnels through the same
+                 addDirective — override any config key absent from the `secure`
+                 list, and its stock list omits every key this file depends on.
+                 The sanitiser walks a directive recursively at every depth and
+                 matches leaf names exactly, so naming the leaf key is enough and
+                 covers both syntaxes.
+
+                 themeCSS is the sharpest of them: it is concatenated verbatim
+                 into the emitted <style>, at top level, outside any block. Its
+                 only check is a brace-balance test, which zero braces trivially
+                 pass, so a payload can add an @font-face plus a rule that uses it
+                 and the browser fetches the font from a host of its choosing.
+                 fontFamily and altFontFamily reach the same stylesheet but land
+                 inside a :root{ } block that the brace test stops them escaping.
+                 htmlLabels reaches markup; theme repaints the LIGHT slot in dark
+                 colours, which print then reproduces because print forces
+                 .d-light. Every one of these was reproduced on real render.sh
+                 output before being pinned here, by fence, by frontmatter, and
+                 through Task 12's generated node label. */
+              secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme","themeCSS","fontFamily","altFontFamily"],
+              /* Labels as SVG text, not innerHTML. See this task's preamble: at
+                 strict, v10 still inserts flowchart labels as HTML and DOMPurify
+                 keeps <img>, so an image tag in a task heading fires a real
+                 network request out of a file whose whole premise is inertness. */
+              flowchart:{ htmlLabels:false },
+              theme: pass.theme, fontFamily:"inherit"
+            });
+            return raceQueue(mermaid.parse(src), "Parse");
+          })
+          .then(function(){ return raceQueue(mermaid.render(id, src), "Render"); })
           .then(function(res){
             var slot = document.createElement("div");
-            slot.className = cls;
+            slot.className = pass.cls;
             slot.innerHTML = res.svg;
             box.appendChild(slot);
           })
@@ -2302,23 +2371,17 @@ Append inside the IIFE, after the per-task progress section:
               var n = document.getElementById(orphan);
               if (n && n.parentNode) n.parentNode.removeChild(n);
             });
-            /* Unreachable as the code stands — a failing pass removes data-src
-               below, so the next pass's [data-src] re-query never revisits this
-               box. Kept as defence: it is the only thing standing between a
-               future third pass, or a retry, and an error card rebuilt on top
-               of itself. */
-            if (box.classList.contains("mermaid-error")) return;
-            /* Never destroy a pass that already succeeded. The two passes
-               mutate one container; a dark-pass failure would otherwise
-               replace three perfectly good light renders with error boxes —
-               and print, which forces .d-light, would show the error. */
+            /* Never destroy a pass that already succeeded. The two passes mutate
+               one container; a dark-pass failure would otherwise replace a
+               perfectly good light render with an error card — and print, which
+               forces .d-light, would show the error. */
             if (box.querySelector(".d-light svg")) {
               /* ...but say so. Keeping the good render is right; keeping it
                  silently is not. This was the one path in the section that
-                 produced neither a DOM signal nor a console line: a box that is
-                 a correct diagram in light and an empty card in dark, with
-                 nothing anywhere to explain the difference. */
-              warn("mermaid: " + cls + " pass for an already-rendered diagram", err);
+                 produced neither a DOM signal nor a console line: a box that is a
+                 correct diagram in light and an empty card in dark, with nothing
+                 anywhere to explain the difference. */
+              warn("mermaid: " + pass.cls + " pass for an already-rendered diagram", err);
               return;
             }
             box.className = "mermaid-error";
@@ -2331,48 +2394,63 @@ Append inside the IIFE, after the per-task progress section:
       });
     }, Promise.resolve());
   }
-  /* Two containment mechanisms, because this one statement has two failure
-     modes and guard() can only see the first. guard() catches a SYNCHRONOUS
-     throw out of the first renderPass call — a mermaid.initialize that rejects
-     its config, a querySelectorAll that throws — which would otherwise escape
-     the IIFE. The trailing .catch covers everything that happens after the
-     first tick: a rejection out of the light pass's reduce chain (including a
-     per-box .catch handler that itself throws), and any throw or rejection
-     from the SECOND renderPass call, which runs inside a .then callback where
-     guard() has long since returned. Without it a dark-pass failure is an
-     unhandled rejection: no label, no warn(), nothing attributable to this
-     file — the silent failure the containment doctrine above exists to refuse. */
+
+  /* Completion marker for the walk harness: a waitForSelector on this beats a
+     fixed waitForTimeout, and it is the only thing that can tell "slow" apart
+     from "stalled". First writer wins, so the run-level deadline below cannot
+     overwrite a real verdict and a late completion cannot overwrite the
+     deadline's — the attribute never flaps, and a harness that reads it once has
+     a stable answer. Four values, because four things genuinely differ: the run
+     finished (with or without error cards); it died; it never finished at all;
+     or mermaid was not on the page, which is not a completed run but a page of
+     empty boxes. */
+  function markRun(state){
+    if (!root.hasAttribute("data-diagrams")) root.setAttribute("data-diagrams", state);
+  }
+  /* Belt and braces, and deliberately so: wedge detection above already bounds a
+     stalled run to one timeout, but this section has twice been certain a class
+     of hang was closed and been wrong. 20s is comfortably past the slowest
+     legitimate run measurable here (a twenty-diagram brief of oversized graphs is
+     ~8.7s, and a wedged one ~8.1s) and comfortably inside the 30s the browser
+     harness waits, so the page always answers before the harness gives up. */
+  var RUN_DEADLINE_MS = 20000;
+  var runDeadline = setTimeout(function(){ markRun("stalled"); }, RUN_DEADLINE_MS);
+
+  /* guard() covers the synchronous kick-off — the querySelectorAll and the reduce
+     that builds the chain. Everything after the first tick, including every
+     mermaid.initialize (which now runs inside a .then, per box and per theme), is
+     a promise rejection that guard() structurally cannot see; the terminal .catch
+     is what covers those. Without it a failure there is an unhandled rejection:
+     no label, no warn(), nothing attributable to this file. */
   var diagramsStarted = false;
   guard("mermaid: start dual-theme render", function(){
-    renderPass("default", "d-light")
-      .then(function(){ return renderPass("dark", "d-dark"); })
-      /* Completion marker for the walk harness: a waitForSelector on this beats
-         a fixed waitForTimeout, and it is the only thing that can tell "slow"
-         apart from "stalled". Marked on the failure path too — a run that ended
-         in an error card has still ended, and a marker that appeared only on
-         success would hand the harness straight back the ambiguity it exists to
-         remove. */
-      .then(function(){ root.setAttribute("data-diagrams", "done"); })
-      .catch(function(e){
-        warn("mermaid: dual-theme render chain", e);
-        root.setAttribute("data-diagrams", "failed");
-      });
+    if (typeof mermaid === "undefined") {
+      markRun("unavailable");
+      clearTimeout(runDeadline);
+      diagramsStarted = true;
+      return;
+    }
+    Array.prototype.slice.call(document.querySelectorAll("[data-src]"))
+      .reduce(function(chain, box){
+        return chain.then(function(){ return renderBox(box); });
+      }, Promise.resolve())
+      .then(function(){ markRun("done"); })
+      .catch(function(e){ warn("mermaid: dual-theme render chain", e); markRun("failed"); })
+      .then(function(){ clearTimeout(runDeadline); });
     diagramsStarted = true;
   });
   /* The third state, found by measurement rather than reasoning: when guard()
      catches a synchronous throw the chain never starts, so neither .then nor
-     .catch above can ever run and NO marker is set. Observed at 63s with the
+     .catch above can ever run and no marker is set. Observed at 63s with the
      attribute still absent — a harness waiting on [data-diagrams] hangs forever
-     on the one path that is already a hard failure, which is the ambiguity the
-     marker exists to remove, reintroduced at the far end. Mark it here,
-     synchronously, so the attribute means "the run ended" on every path. */
-  if (!diagramsStarted) root.setAttribute("data-diagrams", "failed");
+     on the one path that is already a hard failure. Mark it here, synchronously. */
+  if (!diagramsStarted) { markRun("failed"); clearTimeout(runDeadline); }
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: all nineteen new assertions PASS and the suite reports 214 passed, 0 failed. Visual confirmation is **walk cases 2, 4, 5, 10 and 11** — the static test proves the API contract, not that diagrams are legible.
+Expected: all twenty-nine new assertions PASS and the suite reports 224 passed, 0 failed. Visual confirmation is **walk cases 2, 4, 5, 10 and 11** — the static test proves the API contract, not that diagrams are legible.
 
 - [ ] **Step 5: Commit**
 
@@ -2934,14 +3012,23 @@ UNC link: [unc](/\evil.example.invalid/share)
 
 Good link: [BLOCKS](BLOCKS.md) and [fragment](#design) and [web](https://example.com/).
 
-Directive-bypass probe — a payload trying to put `htmlLabels` back and beacon through a
-node label. Task 13's `secure` list is what refuses it; without that list this fence
-produces a live `<img>` and hangs the renderer.
+Directive-bypass probes. The first tries to put `htmlLabels` back and beacon through a
+node label; without Task 13's `secure` list it produces a live `<img>` and hangs the
+renderer. The second needs neither, and is the one that survived the round which closed
+the first: `themeCSS` is concatenated verbatim into the emitted `<style>`, so an
+`@font-face` plus a rule that uses it fetches a font from a host of the payload's
+choosing.
 
 ```mermaid
 %%{init: {"flowchart": {"htmlLabels": true}}}%%
 flowchart LR
   A["<img src=https://evil.example.invalid/x.png>"] --> B["<b>bold</b>"]
+```
+
+```mermaid
+%%{init: {"themeCSS": "@font-face{font-family:pwn;src:url(https://evil.example.invalid/p.woff2);} text{font-family:pwn;}"}}%%
+flowchart LR
+  C[themeCSS probe] --> D[still renders]
 ```
 ````
 
@@ -3112,6 +3199,12 @@ async function probe(file) {
     // Mermaid leaves its temp container attached to <body> on every failure
     // exit; it carries mermaid's own error graphic, outside .shell, unclassed.
     orphans: document.querySelectorAll('[id^="dmmd-"], [id^="immd-"]').length,
+    // themeCSS is concatenated verbatim into the emitted <style>. Counting live
+    // <style> elements that carry a payload host is the only thing that sees it:
+    // it needs no <foreignObject>, no <img>, and leaves the diagram rendering
+    // normally, so every other probe here reads clean while it is wide open.
+    styleBeacons: [...document.querySelectorAll('style')]
+      .filter(n => n.isConnected && n.textContent.includes('evil.example.invalid')).length,
     diagramsState: document.documentElement.getAttribute('data-diagrams'),
     contentH1: document.querySelectorAll('#content h1').length,
     pending: document.querySelectorAll('.callout.pending').length,
@@ -3203,8 +3296,9 @@ async function probe(file) {
   // fixture carries %%{init:{"flowchart":{"htmlLabels":true}}}%% and an <img>
   // node label. Both counts are zero only while the secure list holds.
   chk('beacon: directive cannot re-enable HTML labels', r.foreignObjects, 0);
+  chk('beacon: directive cannot inject CSS into the emitted stylesheet', r.styleBeacons, 0);
   chk('beacon: no orphaned mermaid temp container', r.orphans, 0);
-  chk('beacon: the directive fence still rendered in both themes', [r.light, r.dark], [1, 1]);
+  chk('beacon: both directive fences still rendered in both themes', [r.light, r.dark], [2, 2]);
   chk('beacon: the run completed rather than stalling', r.diagramsState, 'done');
 }
 
@@ -3923,7 +4017,9 @@ Eleven cases. Nine are carried forward from the spec's `browser-walk-only` requi
 
 10. **HTML in a heading, through the mermaid label path.** This case exists to settle the inferred half of Task 13's `htmlLabels` reasoning, which no static test can reach. Write a two-task fixture — two tasks so a dependency graph is drawn at all — whose first heading carries an image tag: `### Task 1: probe <img src=https://evil.example.invalid/x.png>`, with `### Task 2: second` and a `**Depends on:** Task 1` under it. Render it with `assets/change-brief/render.sh`. Open the developer console and the network tab **before** loading the file, leave the network enabled, then open the rendered brief from `file://`. The `.invalid` TLD never resolves, so a request attempt is visible in the network tab without anything leaving the machine. Confirm the network tab shows zero requests, and no attempt, to `evil.example.invalid` or any other host. Inspect the graph's first node in the elements panel and confirm its label is an SVG `<text>` element holding the tag as literal characters — no `<foreignObject>`, and no `<img>` element anywhere inside the diagram. Then remove `flowchart: { htmlLabels: false }` from `mermaid.initialize` in `assets/change-brief/template.html`, re-render, and reload with the network tab open. Under jsdom that configuration produced a `<foreignObject>` label and a live `<img>` element carrying the payload's URL, which DOMPurify did **not** strip — but every observation behind that is jsdom's, and this case is the browser's. Confirm whether the browser agrees on the DOM: `<foreignObject>` present, `<img>` present, its `src` intact. Then, separately, record whether a request attempt to `evil.example.invalid` appears in the network tab — that is the step no harness has been able to observe at all, and the one genuinely open question here. Restore the setting afterwards. Report both answers; they are what Task 13's prose is waiting on.
 
-    **Third leg — the payload-directive route, against the template exactly as shipped.** The A/B above modifies the template; this leg modifies nothing, and it is the one that matters most, because the A/B could never have caught the bypass Task 13 now guards: a payload directive needs no template change at all, so removing `htmlLabels: false` and putting it back only ever exercised the half of the control that was never the weak one. Render `assets/change-brief/tests/fixtures/beacon.md`, whose fence begins `%%{init: {"flowchart": {"htmlLabels": true}}}%%` and carries an `A["<img src=https://evil.example.invalid/x.png>"]` node label, and open it with the network tab already recording. Confirm the diagram renders in **both** themes; that the elements panel shows no `<foreignObject>` and no `<img>` anywhere on the page; that no `<div id="dmmd-…">` is left behind in `<body>`; that `document.documentElement.dataset.diagrams` reads `done` rather than being absent; and that no request, and no request *attempt*, to `evil.example.invalid` appears. Under jsdom every one of these holds with the `secure` list in place and every one of them failed without it — but jsdom is blind to the request itself, so the network tab remains the only thing that can answer the last one.
+    **Third leg — the payload-directive route, against the template exactly as shipped.** The A/B above modifies the template; this leg modifies nothing, and it is the one that matters most, because the A/B could never have caught the bypass Task 13 now guards: a payload directive needs no template change at all, so removing `htmlLabels: false` and putting it back only ever exercised the half of the control that was never the weak one. Render `assets/change-brief/tests/fixtures/beacon.md`, which carries two directive fences — one re-enabling `htmlLabels` with an `A["<img src=https://evil.example.invalid/x.png>"]` node label, and one setting `themeCSS` to an `@font-face` plus a rule that uses it — and open it with the network tab already recording. Confirm **both** diagrams render in **both** themes; that the elements panel shows no `<foreignObject>` and no `<img>` anywhere on the page; that no `<style>` element on the page contains `evil.example.invalid`; that no `<div id="dmmd-…">` is left behind in `<body>`; that `document.documentElement.dataset.diagrams` reads `done` rather than being absent; and that no request, and no request *attempt*, to `evil.example.invalid` appears.
+
+    The `themeCSS` half is the one to take seriously, because it is the one that got through a round of review that had already closed the other: it needs no `htmlLabels`, produces no `<foreignObject>` and no `<img>`, and leaves the diagram rendering normally, so every check aimed at the first fence reads clean while it is wide open. It is also where the browser is most needed. Under jsdom the payload is demonstrably in a live, `isConnected` `<style>` without the `secure` list and demonstrably absent with it — but whether an `@font-face` at that position actually fetches is a question jsdom cannot answer, and the ordering matters: mermaid's own theme rules always precede the payload, so a payload `@import` lands mid-stylesheet where the CSS spec says it must be ignored, while `@font-face` has no such restriction. Record which of the two, if either, produces a request.
 
 11. **Duplicate unnamespaced ids across the two theme variants.** Mermaid does not namespace every id it emits per render — `arrowhead`, `crosshead`, `sequencenumber`, `clock` and `database` are emitted verbatim — so a page holding both a light and a dark render of one diagram holds two elements sharing each of those ids. **Confirmed:** the DOM fact. On the real dogfood brief there are 55 duplicated ids, and both the `.d-light` and the `.d-dark` slot carry their own `<marker id="arrowhead">`. **Inferred, and observed by nothing:** the visual consequence. A fragment reference such as `url(#arrowhead)` resolves to the first match in document order — the light render's marker — so the dark diagram should be painting its arrowheads in light-theme colours. That follows from the DOM plus the CSS; jsdom cannot settle it, because it paints nothing. Render a fixture containing a `sequenceDiagram` fence (arrowheads and sequence numbers are the markers this reaches), switch the theme control to dark, and confirm whether the arrowheads and sequence numbers are visible and correctly coloured against the dark background. Repeat in light. If dark is wrong, the light-before-dark render order is the cause — and the fix is to namespace the ids per pass, **not** to reverse the order, which would merely move the same defect onto print, which forces `.d-light`. Record what you actually see, not what this paragraph predicts.
 
