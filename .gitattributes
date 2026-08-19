@@ -6,3 +6,4 @@ assets/change-brief/template.html text eol=lf
 assets/change-brief/render.sh text eol=lf
 assets/change-brief/scan.awk text eol=lf
 assets/change-brief/tests/render_test.sh text eol=lf
+assets/change-brief/tests/fixtures/*.md text eol=lf

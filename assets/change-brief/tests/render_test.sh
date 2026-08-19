@@ -1254,6 +1254,66 @@ chk "the no-tasks banner is gated on the collect guard having actually run" \
 chk "and that flag is set inside the collect callback, not beside it" \
   "$(grep -c '^    collected = true;$' "$S/template.html")" "1"
 
+echo "== fixtures =="
+for f in spec plan hostile-title broken-diagram beacon comment-truncation plan-region; do
+  P="$S/tests/fixtures/$f.md"
+  { [ -f "$P" ] && [ -s "$P" ]; } && ok "fixture $f.md present and non-empty" \
+    || no "fixture $f.md present and non-empty" "missing, empty, or not a regular file"
+done
+# A fixture is an assertion's input. An input that quietly loses its
+# load-bearing line turns the assertion reading it into a tautology, and
+# that assertion still reports PASS. Measured: with the fence below removed,
+# Task 17's deadAnchors probe reports [] against a template with the h-
+# prefix deleted -- i.e. it passes whether the template is right or wrong.
+PR="$S/tests/fixtures/plan-region.md"
+chk "plan-region.md carries the sequence fence deadAnchors needs" \
+  "$(grep -c '^sequenceDiagram$' "$PR")" "1"
+chk "plan-region.md carries the ## Database heading that collides with it" \
+  "$(grep -c '^## Database$' "$PR")" "1"
+# getElementById returns the first match in document order, so the fence must
+# precede the heading or the collision cannot happen at all.
+fence_ln=$(grep -n '^sequenceDiagram$' "$PR" | cut -d: -f1)
+db_ln=$(grep -n '^## Database$' "$PR" | cut -d: -f1)
+if [ -n "$fence_ln" ] && [ -n "$db_ln" ] && [ "$fence_ln" -lt "$db_ln" ]; then
+  ok "the sequence fence precedes ## Database, which the collision depends on"
+else
+  no "the sequence fence precedes ## Database, which the collision depends on" \
+     "fence=[${fence_ln:-missing}] db=[${db_ln:-missing}]"
+fi
+chk "plan-region.md carries its own ## Plan and a task-shaped h3" \
+  "$(grep -c '^## Plan$' "$PR")$(grep -c '^### Task 1: Example' "$PR")" "11"
+B="$S/tests/fixtures/beacon.md"
+# `^%%{init:` counted line starts, not bypass attempts. Measured: replacing both
+# directives with `%%{init: {}}%%` left the whole suite green while Task 17's
+# foreignObjects and styleBeacons probes went tautological -- an inert directive
+# asks for nothing, so both report 0 against a template with the `secure` list
+# deleted. Pin what each probe actually does, and pin the count alongside the
+# htmlLabels one so a third directive cannot appear unnoticed. Which fence
+# comes first is deliberately NOT pinned: each directive governs its own
+# fence, so swapping them changes no probe, and a check may not claim an
+# ordering it does not test.
+chk "beacon.md carries exactly two init directives, one re-enabling htmlLabels" \
+  "$(grep -c '^%%{init:' "$B")$(grep -cxF '%%{init: {"flowchart": {"htmlLabels": true}}}%%' "$B")" "21"
+# A separate check rather than a third term concatenated above: one combined
+# total would still pass with either probe neutered as long as the other
+# survived, and independence is the whole point -- these are two different
+# bypasses, and the themeCSS one outlived the round that closed the other.
+chk "beacon.md's themeCSS directive is aimed at the payload host" \
+  "$(grep -cxF '%%{init: {"themeCSS": "@font-face{font-family:pwn;src:url(https://evil.example.invalid/p.woff2);} text{font-family:pwn;}"}}%%' "$B")" "1"
+# Task 17's styleBeacons filter greps live <style> for this exact literal, so
+# renaming the host makes that probe report 0 whether the template is right or
+# wrong. Three lines carry it -- the UNC link, the flowchart node label's <img>
+# target, and the @font-face url() above -- and only the third is inside a
+# directive, so the line above cannot stand in for this one.
+chk "beacon.md keeps the payload host on all three lines that carry it" \
+  "$(grep -c 'evil\.example\.invalid' "$B")" "3"
+chk "beacon.md carries the executable-URL probes" \
+  "$(grep -c 'javascript:window.__PWN=1' "$B")$(grep -c 'onerror=' "$B")" "11"
+chk "broken-diagram.md carries three mermaid fences" \
+  "$(grep -c '^```mermaid$' "$S/tests/fixtures/broken-diagram.md")" "3"
+chk "plan.md declares the forward reference" \
+  "$(grep -c '^\*\*Depends on:\*\* Task 1, Task 99$' "$S/tests/fixtures/plan.md")" "1"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
