@@ -5122,6 +5122,47 @@ Eleven cases. Nine are carried forward from the spec's `browser-walk-only` requi
 
 ---
 
+## Walk Results — executed 2026-08-20
+
+All eleven cases run against the dogfood brief and the fixtures, on this machine. The mechanical half of each case was driven by a scratchpad Playwright script (not committed — it is a driver, not a deliverable); the half that only eyes can settle — diagram legibility in each theme, the print appearance, whether an arrowhead is actually visible — was settled by looking at screenshots and at the printed PDF. **76 assertions, 0 failed.**
+
+**The walk earned its keep: it found two defects that every static assertion, the headless harness and jsdom all missed.** Both are fixed in `08034c2`, and both are now held by assertions in `verify.mjs` (`1414917`) that were shown to go red against a mutated template.
+
+| Case | Verdict | What was observed |
+|---|---|---|
+| 1 Index navigation | pass | 11 groups against 11 `##` sections, all 23 tasks under Plan, chevron collapses without moving the scroll position, every Plan entry resolves to its own heading, highlight never blank top to bottom |
+| 2 Theme switching | pass | auto / light / dark each show exactly one diagram variant; diagrams legible in both, checked by eye; last choice survives reload |
+| 3 Narrow viewport | **fail, fixed** | hamburger and overlay correct, but the page body scrolled sideways — see below |
+| 4 Broken diagram | pass | one error box carrying the parse message and the offending source, both neighbours still render |
+| 5 Print from dark | pass | sidebar, hamburger and theme control absent; white ground, black text; light diagram variant selected; `break-inside:avoid` holds. One page is mostly whitespace, which is that rule working, not a defect |
+| 6 Inertness, network off | pass | zero requests to any host, nothing executed, remote image an inert chip, `javascript:` and UNC hrefs plain text, the three good links still links |
+| 7 Dependency graph | pass | graph immediately above the first task heading, exactly `T1 --> T2` and `T1 --> T3`, no `T99`, prose `Depends on` emits nothing, Task 2 amber |
+| 8 Pending notice | pass | dashed tinted callout headed "Plan not yet written", says the change is free now, no banner |
+| 9 Cross-browser | pass | Chrome, Firefox and WebKit identical on every number measured |
+| 10 HTML in a heading | pass, **question answered** | see below |
+| 11 Duplicate ids | **fail, fixed** | worse than predicted — see below |
+
+**Case 3 — the page body scrolled sideways at 480px.** `document.documentElement.scrollWidth` was 587 against a 480 viewport, at every scroll offset. Not the tables and not the fences, which own their horizontal scroll deliberately: a long unbreakable token in *prose*, traced to two inline `code` spans — `["secure","securityLevel","startOnLoad","maxTextSize","maxEdges"]` and `~/.claude/plugins/cache/umbrella/umbrella/<version>/skills/<name>`. `overflow-wrap:anywhere` on `.doc` takes it to exactly 480. The measured widest unbreakable run in any existing fixture is 82px, so this could never have been caught by a check written against the fixtures — the assertion that now holds it renders its own probe.
+
+**Case 10 — the open question is answered, and the answer is yes.** The plan has carried "whether a request attempt actually fires" as unobserved by anything, because jsdom could see the live `<img>` and never the fetch. Measured in Chrome, with the network tab recording:
+
+- **Template as shipped:** 0 `<foreignObject>`, 0 `<img>`, **0 requests and 0 request attempts**. The tag survives as literal characters inside an SVG `<text>`: `1 · probe <img src="https://evil.example.invalid/x.png">`.
+- **With `flowchart:{ htmlLabels:false }` removed:** 6 `<foreignObject>`, 2 live `<img>` carrying the payload URL, and **three real fetch attempts to `evil.example.invalid`, every one of them DNS-FAILED**.
+- **Third leg, the payload-directive route against the template exactly as shipped:** both directive fences render in both themes, no `<foreignObject>`, no `<img>`, no `<style>` carrying the host, no orphaned temp container, `dataset.diagrams` reads `done`, and zero requests and zero attempts. Neither the `htmlLabels` fence nor the `themeCSS` fence produced a request.
+
+So `htmlLabels:false` is load-bearing, empirically and not by inference, and the `secure` list closes the route that needs no template change at all.
+
+**Case 11 — confirmed, and worse than the paragraph above predicted.** The prediction was arrowheads painted in light-theme colours. What the browser actually shows is that the dark render loses **every arrowhead and every autonumber bubble outright**, while light keeps both. The reason is one step past the id collision: `url(#arrowhead)` resolves to the light pass's marker, and in dark theme that element sits inside a `display:none` subtree — a marker that is not rendered paints nothing at all. The fix is the one named above, namespacing per pass, implemented as `nsIds()`. The dogfood brief goes from 55 duplicated ids to 0.
+
+One trap found while implementing it, recorded so nobody repeats it: the root `<svg>`'s own id must stay exempt. Mermaid scopes its emitted stylesheet as `#<svgId> .actor{...}`, a plain id selector rather than a `url(#)` reference, so renaming it detaches every theme rule — the first attempt came back with light actor boxes and no message lines in dark, visibly worse than the defect being fixed.
+
+A consequence worth knowing: `nsIds()` also removed the only *fixture* collision the `h-` heading prefix was catching, so removing that prefix no longer fails anything behaviourally. The property is now guarded twice — upstream by `nsIds()`, downstream by the prefix — and it takes deleting both to make `deadAnchors` report `["database"]` again. Measured separately: a heading colliding with a *template* id (`## Content` against `id="content"`) is handled by `slug()`'s retry loop, which emits `content-2`; the prefix was never what protected that case.
+
+**Case 9 — cross-browser.** Chrome 151, Playwright Firefox and Playwright WebKit, same page, same numbers in all three: 58 index entries, 11 groups, 4 light and 4 dark diagrams, 0 error boxes, 0 integrity banners, 0 duplicated ids, 0 dead anchors, no body overflow, theme toggle works, 0 offsite requests, no page errors. The honest limit: WebKit is Safari's engine, not Safari.app, and there is no Firefox.app on this machine — the Playwright builds are what ran.
+
+**`resolve_test.sh` needs a reinstall to pass, by design.** Against the installed plugin on this machine — cached before this branch existed and shipping no `assets/` — it reports `0 passed, 7 failed`, exit 1. Against a fresh install of this working tree through the real installer it reports `7 passed, 0 failed`, exit 0, and a real spec renders through the installed `render.sh` with nothing on stderr. The plugin payload does carry `assets/`; the stale cache is age, not a packaging gap. Re-run it after the branch is pushed and the plugin reinstalled.
+
+---
 ## Self-Review
 
 **Spec coverage.** Every `static-verifiable` requirement in the spec maps to an assertion in `assets/change-brief/tests/render_test.sh` created by Tasks 1-21. Every `browser-walk-only` requirement maps to a numbered walk case above. The six Known open findings map to Task 15. Asset path resolution maps to Task 22.
