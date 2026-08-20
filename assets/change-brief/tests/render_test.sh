@@ -1314,6 +1314,98 @@ chk "broken-diagram.md carries three mermaid fences" \
 chk "plan.md declares the forward reference" \
   "$(grep -c '^\*\*Depends on:\*\* Task 1, Task 99$' "$S/tests/fixtures/plan.md")" "1"
 
+echo "== browser harness =="
+# The shell suite cannot RUN this harness: a bare checkout has no npm and no
+# browser, which is the whole reason the harness is optional. So presence is all
+# the suite can observe -- and presence is not enough. A verify.mjs that has
+# quietly lost half its assertions is byte-different and status-identical.
+# Two things reading the file can settle. First the assertion inventory: the
+# count moves only when an assertion is deliberately added or removed, and that
+# edit has to come here too. Second, the probes whose PASSING value is the empty
+# one. A probe expecting 0 or [] reports a pass when its selector matches
+# nothing, so a typo in one is invisible to the shell AND to a green harness run
+# -- measured: gutting the template's mermaid `secure` list fails three of those
+# assertions and removing the template's h- heading prefix fails deadAnchors,
+# but only while the selectors below still name what they claim to.
+# Deliberately NOT pinned, because breaking them fails loudly rather than
+# silently and pinning them would churn on ordinary edits: the chk messages, the
+# launcher, the timeouts, and every probe whose expected value is non-zero -- a
+# wrong selector there reports 0 against an expectation of 1 and fails on sight.
+for f in package.json verify.mjs .gitignore; do
+  P="$S/tests/browser/$f"
+  { [ -f "$P" ] && [ -s "$P" ]; } && ok "browser harness $f present and non-empty" \
+    || no "browser harness $f present and non-empty" "missing, empty, or not a regular file"
+done
+BP="$S/tests/browser/package.json"
+# Neither half is optional: without the dependency `npm install` installs
+# nothing and the import cannot resolve; without the type field node refuses
+# verify.mjs's top-level import outright.
+chk "package.json declares playwright-core and marks the directory ESM" \
+  "$(grep -cF '"playwright-core"' "$BP")$(grep -cF '"type": "module"' "$BP")" "11"
+GI="$S/tests/browser/.gitignore"
+# `npm install` here drops thousands of files inside a tracked tree. Matched
+# whole-line: git does not strip a trailing \r from an ignore pattern, so a CRLF
+# checkout of this file ignores nothing at all, and -x is what sees that.
+chk ".gitignore covers both artefacts npm install leaves here" \
+  "$(grep -cxF 'node_modules/' "$GI")$(grep -cxF 'package-lock.json' "$GI")" "11"
+V="$S/tests/browser/verify.mjs"
+# Three terms, because pinning any two leaves the third free: the source count,
+# the constant it is compared against, and the comparison itself. Measured --
+# with only the first two pinned, deleting the `pass + fail !== EXPECTED` block
+# reported 38 passed, 0 failed and a green suite; and with only the first
+# pinned, disabling an assertion block AND lowering the constant to match
+# reported 27 passed, 0 failed, exit 0, with nothing anywhere going red.
+#
+# 40 call sites against a 38-assertion suite is not a discrepancy: the canary
+# pinned below calls chk twice on purpose and restores the counters, so the two
+# numbers are meant to differ by exactly two. Adding or removing a real
+# assertion moves both, and this line is where they are held together.
+chk "verify.mjs still carries its whole assertion inventory, and rechecks it at runtime" \
+  "$(grep -c '^ *chk(' "$V")/$(grep -cF 'const EXPECTED = 38;' "$V")$(grep -cF 'pass + fail !== EXPECTED' "$V")" "40/11"
+# Task 13's two bypasses, kept as two checks for the same reason the fixture
+# pins above keep them apart: they are independent, and the themeCSS one
+# outlived the round that closed the htmlLabels one.
+# Every assertion in verify.mjs is worth exactly what chk is worth, and chk
+# rewritten to `(m, got, want) => ok(m)` keeps the source count and every pinned
+# selector below intact. Measured: so neutered, the harness certified a page
+# firing four live requests to evil.example.invalid as 38 passed, 0 failed,
+# while this suite stayed green -- the worst failure mode the harness has, and
+# invisible to every other pin here. Both terms are pinned for the reason the
+# EXPECTED comment above gives: a canary that computes a verdict it never raises
+# is exactly as blind as no canary, so the throw is pinned, not just the call.
+chk "verify.mjs self-tests chk before trusting it, and raises the verdict by throwing" \
+  "$(grep -cF "chk('canary: a mismatched pair must fail', 1, 2);" "$V")$(grep -cF "throw new Error('harness self-test failed" "$V")" "11"
+chk "verify.mjs's htmlLabels probe still counts foreignObject" \
+  "$(grep -cF "querySelectorAll('foreignObject')" "$V")" "1"
+# The paired half of the beacon.md pin above: this probe greps live <style> for
+# the host as a literal, so a rename on either side makes it report 0 whether
+# the template is right or wrong. The QUERY is pinned alongside the filter --
+# `querySelectorAll('style')` typed wrong searches nothing, and searching
+# nothing for the right literal reports 0 exactly like searching everything for
+# the wrong one. Every pin below carries the same pairing, for the same reason.
+chk "verify.mjs's themeCSS probe still names both the element set and the host" \
+  "$(grep -cF "querySelectorAll('style')" "$V")$(grep -cF "includes('evil.example.invalid')" "$V")" "11"
+# deadAnchors is [] both when every index entry resolves to its own heading and
+# when the test of what it resolved TO is deleted. That tagName match is the
+# entire discriminator for the collision property Task 15 exists for.
+chk "verify.mjs's deadAnchors probe still names its entries and tests what they resolved to" \
+  "$(grep -cF "'#toc a[data-target]'" "$V")$(grep -cF '/^H[23]$/' "$V")" "11"
+# The rest of the empty-expectation set. Concatenated, not summed: a sum still
+# totals right with one term at zero and another at two, a concatenation cannot.
+# `p.on('request'` is the only network observation in the entire feature: with
+# that event name typed wrong nothing is ever collected, and BOTH offsite
+# assertions report [] while the page beacons freely. Measured against a
+# template with the mermaid `secure` list gutted: four live requests to
+# evil.example.invalid, both probes green.
+chk "verify.mjs's inertness probes still name their selectors" \
+  "$(grep -cF '[id^="dmmd-"], [id^="immd-"]' "$V")$(grep -cF "p.on('request'" "$V")$(grep -cF "startsWith('file://')" "$V")$(grep -cF 'reqs.push(r.url())' "$V")$(grep -cF 'window.__PWN === undefined' "$V")" "11111"
+# The listener BODY is pinned, not just its registration: with errs.push gone
+# the handler runs and records nothing, and all five "no page errors"
+# assertions go vacuous at once. Measured against a template carrying an
+# injected `setTimeout(() => __definitely_not_defined__(), 0)`: the clean file
+# reports 5 failures, the neutered one reports none.
+chk "verify.mjs's integrity probes still name their selectors" \
+  "$(grep -cF "querySelectorAll('.integrity-banner')" "$V")$(grep -cF "querySelectorAll('#content h1')" "$V")$(grep -cF "p.on('pageerror'" "$V")$(grep -cF 'errs.push(e.message)' "$V")" "1111"
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

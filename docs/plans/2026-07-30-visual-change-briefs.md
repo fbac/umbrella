@@ -3595,22 +3595,109 @@ Optional tooling, not a dependency of the change. Where it cannot run, its asser
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `assets/change-brief/tests/render_test.sh`, before the final `echo`:
+Append to `assets/change-brief/tests/render_test.sh`, before the final `echo`. Presence checks are not enough, for the same reason Task 16 replaced them for the fixtures — but the failure mode differs in kind here, and the difference is what the block is shaped around. A fixture that loses a load-bearing line goes undetected because nothing reads it closely; `verify.mjs` is executable, so a gutted copy is caught by *running* it. The gap is that the shell suite cannot run it: a bare checkout has no `npm` and no browser, which is precisely why the harness is optional.
+
+So the block pins what reading the file can settle — and pins each observation at every link in its chain. A probe reads as `query -> filter -> record`, and all three can be neutered silently while the other two stay honest: `querySelectorAll('style')` typed wrong searches nothing, and searching nothing for the right host literal reports 0 exactly like searching everything for the wrong one. An earlier revision of this block pinned only the filters, and eight of thirteen planted mutations survived both it and a green harness run.
 
 ```bash
 echo "== browser harness =="
-[ -r "$S/tests/browser/package.json" ] && ok "browser package.json present" \
-  || no "browser package.json present" "missing"
-grep -q 'playwright-core' "$S/tests/browser/package.json" 2>/dev/null \
-  && ok "  declares playwright-core" || no "  declares playwright-core" "missing"
-[ -r "$S/tests/browser/verify.mjs" ] && ok "verify.mjs present" \
-  || no "verify.mjs present" "missing"
+# The shell suite cannot RUN this harness: a bare checkout has no npm and no
+# browser, which is the whole reason the harness is optional. So presence is all
+# the suite can observe -- and presence is not enough. A verify.mjs that has
+# quietly lost half its assertions is byte-different and status-identical.
+# Two things reading the file can settle. First the assertion inventory: the
+# count moves only when an assertion is deliberately added or removed, and that
+# edit has to come here too. Second, the probes whose PASSING value is the empty
+# one. A probe expecting 0 or [] reports a pass when its selector matches
+# nothing, so a typo in one is invisible to the shell AND to a green harness run
+# -- measured: gutting the template's mermaid `secure` list fails three of those
+# assertions and removing the template's h- heading prefix fails deadAnchors,
+# but only while the selectors below still name what they claim to.
+# Deliberately NOT pinned, because breaking them fails loudly rather than
+# silently and pinning them would churn on ordinary edits: the chk messages, the
+# launcher, the timeouts, and every probe whose expected value is non-zero -- a
+# wrong selector there reports 0 against an expectation of 1 and fails on sight.
+for f in package.json verify.mjs .gitignore; do
+  P="$S/tests/browser/$f"
+  { [ -f "$P" ] && [ -s "$P" ]; } && ok "browser harness $f present and non-empty" \
+    || no "browser harness $f present and non-empty" "missing, empty, or not a regular file"
+done
+BP="$S/tests/browser/package.json"
+# Neither half is optional: without the dependency `npm install` installs
+# nothing and the import cannot resolve; without the type field node refuses
+# verify.mjs's top-level import outright.
+chk "package.json declares playwright-core and marks the directory ESM" \
+  "$(grep -cF '"playwright-core"' "$BP")$(grep -cF '"type": "module"' "$BP")" "11"
+GI="$S/tests/browser/.gitignore"
+# `npm install` here drops thousands of files inside a tracked tree. Matched
+# whole-line: git does not strip a trailing \r from an ignore pattern, so a CRLF
+# checkout of this file ignores nothing at all, and -x is what sees that.
+chk ".gitignore covers both artefacts npm install leaves here" \
+  "$(grep -cxF 'node_modules/' "$GI")$(grep -cxF 'package-lock.json' "$GI")" "11"
+V="$S/tests/browser/verify.mjs"
+# Three terms, because pinning any two leaves the third free: the source count,
+# the constant it is compared against, and the comparison itself. Measured --
+# with only the first two pinned, deleting the `pass + fail !== EXPECTED` block
+# reported 38 passed, 0 failed and a green suite; and with only the first
+# pinned, disabling an assertion block AND lowering the constant to match
+# reported 27 passed, 0 failed, exit 0, with nothing anywhere going red.
+#
+# 40 call sites against a 38-assertion suite is not a discrepancy: the canary
+# pinned below calls chk twice on purpose and restores the counters, so the two
+# numbers are meant to differ by exactly two. Adding or removing a real
+# assertion moves both, and this line is where they are held together.
+chk "verify.mjs still carries its whole assertion inventory, and rechecks it at runtime" \
+  "$(grep -c '^ *chk(' "$V")/$(grep -cF 'const EXPECTED = 38;' "$V")$(grep -cF 'pass + fail !== EXPECTED' "$V")" "40/11"
+# Task 13's two bypasses, kept as two checks for the same reason the fixture
+# pins above keep them apart: they are independent, and the themeCSS one
+# outlived the round that closed the htmlLabels one.
+# Every assertion in verify.mjs is worth exactly what chk is worth, and chk
+# rewritten to `(m, got, want) => ok(m)` keeps the source count and every pinned
+# selector below intact. Measured: so neutered, the harness certified a page
+# firing four live requests to evil.example.invalid as 38 passed, 0 failed,
+# while this suite stayed green -- the worst failure mode the harness has, and
+# invisible to every other pin here. Both terms are pinned for the reason the
+# EXPECTED comment above gives: a canary that computes a verdict it never raises
+# is exactly as blind as no canary, so the throw is pinned, not just the call.
+chk "verify.mjs self-tests chk before trusting it, and raises the verdict by throwing" \
+  "$(grep -cF "chk('canary: a mismatched pair must fail', 1, 2);" "$V")$(grep -cF "throw new Error('harness self-test failed" "$V")" "11"
+chk "verify.mjs's htmlLabels probe still counts foreignObject" \
+  "$(grep -cF "querySelectorAll('foreignObject')" "$V")" "1"
+# The paired half of the beacon.md pin above: this probe greps live <style> for
+# the host as a literal, so a rename on either side makes it report 0 whether
+# the template is right or wrong. The QUERY is pinned alongside the filter --
+# `querySelectorAll('style')` typed wrong searches nothing, and searching
+# nothing for the right literal reports 0 exactly like searching everything for
+# the wrong one. Every pin below carries the same pairing, for the same reason.
+chk "verify.mjs's themeCSS probe still names both the element set and the host" \
+  "$(grep -cF "querySelectorAll('style')" "$V")$(grep -cF "includes('evil.example.invalid')" "$V")" "11"
+# deadAnchors is [] both when every index entry resolves to its own heading and
+# when the test of what it resolved TO is deleted. That tagName match is the
+# entire discriminator for the collision property Task 15 exists for.
+chk "verify.mjs's deadAnchors probe still names its entries and tests what they resolved to" \
+  "$(grep -cF "'#toc a[data-target]'" "$V")$(grep -cF '/^H[23]$/' "$V")" "11"
+# The rest of the empty-expectation set. Concatenated, not summed: a sum still
+# totals right with one term at zero and another at two, a concatenation cannot.
+# `p.on('request'` is the only network observation in the entire feature: with
+# that event name typed wrong nothing is ever collected, and BOTH offsite
+# assertions report [] while the page beacons freely. Measured against a
+# template with the mermaid `secure` list gutted: four live requests to
+# evil.example.invalid, both probes green.
+chk "verify.mjs's inertness probes still name their selectors" \
+  "$(grep -cF '[id^="dmmd-"], [id^="immd-"]' "$V")$(grep -cF "p.on('request'" "$V")$(grep -cF "startsWith('file://')" "$V")$(grep -cF 'reqs.push(r.url())' "$V")$(grep -cF 'window.__PWN === undefined' "$V")" "11111"
+# The listener BODY is pinned, not just its registration: with errs.push gone
+# the handler runs and records nothing, and all five "no page errors"
+# assertions go vacuous at once. Measured against a template carrying an
+# injected `setTimeout(() => __definitely_not_defined__(), 0)`: the clean file
+# reports 5 failures, the neutered one reports none.
+chk "verify.mjs's integrity probes still name their selectors" \
+  "$(grep -cF "querySelectorAll('.integrity-banner')" "$V")$(grep -cF "querySelectorAll('#content h1')" "$V")$(grep -cF "p.on('pageerror'" "$V")$(grep -cF 'errs.push(e.message)' "$V")" "1111"
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: three FAILs, exit 1.
+Expected, measured with `tests/browser/` absent: 12 FAILs — `shell: 278 passed, 12 failed` — exit 1.
 
 - [ ] **Step 3: Create the harness**
 
@@ -3621,7 +3708,7 @@ Expected: three FAILs, exit 1.
   "name": "change-brief-browser-tests",
   "private": true,
   "type": "module",
-  "description": "Optional headless smoke test for rendered change briefs. Without this manifest verify.mjs cannot resolve its import.",
+  "description": "Optional headless smoke test for rendered change briefs. Without this manifest verify.mjs cannot resolve its import, and without \"type\": \"module\" node refuses to run its top-level import at all.",
   "dependencies": {
     "playwright-core": "^1.62.0"
   }
@@ -3638,21 +3725,40 @@ package-lock.json
 `assets/change-brief/tests/browser/verify.mjs`:
 
 ```javascript
-// Optional headless smoke test. Requires `npm install` in this directory and a
-// system Chrome. Where it cannot run, these assertions fall to the numbered
-// walk cases in the plan's Browser-Walk Inventory.
+// Optional headless smoke test for rendered change briefs. Where it cannot run,
+// these assertions fall to the numbered walk cases in the plan's Browser-Walk
+// Inventory -- nothing in the shell suite or the render pipeline depends on it.
 //
 //   cd assets/change-brief/tests/browser && npm install && node verify.mjs
+//
+// Exit codes are three-valued on purpose: 0 every assertion passed, 1 an
+// assertion failed, 2 no browser to run against. A skip that exited 0 would
+// read as a pass in any wrapper that only looks at the status.
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = new URL('.', import.meta.url).pathname;
+const HERE = dirname(fileURLToPath(import.meta.url));
 const ASSETS = resolve(HERE, '../..');
 const FIX = join(ASSETS, 'tests/fixtures');
 const W = mkdtempSync(join(tmpdir(), 'brief-'));
+// render_test.sh does `trap 'rm -rf "$W"' EXIT`; match it. Registered at the
+// point of creation so it fires on every exit -- the no-browser skip below, an
+// assertion failure, and a throw out of render() alike. Measured before this
+// line existed: 55 leaked brief-* directories holding 1.1 GB.
+process.on('exit', () => rmSync(W, { recursive: true, force: true }));
+
+// render_test.sh pins the number of chk() calls this file CONTAINS. This pins
+// the number it actually RUNS, which is a different guarantee: an assertion
+// block wrapped in `if (false)`, commented out, or rewritten to compare a value
+// to itself leaves the source count intact while the run silently covers less.
+// Measured: `// 4. Inertness.\n{` -> `if (false) {` reported 26 passed, 0
+// failed, exit 0. Keep this in step with render_test.sh's inventory pin; both
+// move together, and so does the plan's Step 4 number.
+const EXPECTED = 38;
 
 let pass = 0, fail = 0;
 const ok = m => { console.log('  PASS  ' + m); pass++; };
@@ -3660,13 +3766,96 @@ const no = (m, d) => { console.log('  FAIL  ' + m + ' :: ' + d); fail++; };
 const chk = (m, got, want) =>
   JSON.stringify(got) === JSON.stringify(want) ? ok(m) : no(m, `expected ${JSON.stringify(want)} got ${JSON.stringify(got)}`);
 
+// The harness's own smoke test, run before anything else, because every
+// assertion in this file is worth exactly what chk is worth. Rewriting the
+// comparison away -- `const chk = (m, got, want) => ok(m);` -- is one line, it
+// leaves the source count and every pinned selector intact, and it is the worst
+// failure this harness has: measured, a chk neutered that way certified a page
+// firing four live requests to evil.example.invalid as `38 passed, 0 failed`,
+// with the shell suite green alongside it.
+//
+// It reports by THROWING, not through no(). Reporting through no() would work
+// while only chk is neutered, but it would go silent the moment no() is itself
+// the broken thing -- and "the reporting path can be trusted" is the whole
+// proposition being established here, so the check may not lean on any part of
+// it. A throw needs neither helper: the process dies non-zero, with a message,
+// before a single real assertion has run. Both directions are exercised, so a
+// chk stubbed to always FAIL is caught by the same block.
+//
+// The counters are restored afterwards, so the canary costs nothing against
+// EXPECTED: the suite is 38 assertions while the file holds 40 chk( call sites.
+// render_test.sh pins both numbers, and they are meant to differ by exactly the
+// two calls below.
+{
+  const p0 = pass, f0 = fail, say = console.log;
+  let detected, reported;
+  // A FAIL line printed by a healthy run teaches readers to skim past FAIL
+  // lines, so the canary's own output is swallowed. finally, because a chk that
+  // throws rather than returning must not leave the console muted.
+  console.log = () => {};
+  try {
+    chk('canary: a mismatched pair must fail', 1, 2);
+    detected = fail === f0 + 1 && pass === p0;
+    chk('canary: a matching pair must pass', 1, 1);
+    reported = pass === p0 + 1;
+  } finally {
+    console.log = say;
+    pass = p0; fail = f0;
+  }
+  if (!detected || !reported) {
+    throw new Error('harness self-test failed: a mismatched pair ' +
+      (detected ? 'failed' : 'did NOT fail') + ' and a matching pair ' +
+      (reported ? 'passed' : 'did NOT pass') +
+      '. chk/ok/no are not reporting, so every assertion in this file is void.');
+  }
+}
+
 function render(spec, plan, out) {
   const args = plan ? [spec, plan, '-o', out] : [spec, '-o', out];
-  execFileSync(join(ASSETS, 'render.sh'), args, { stdio: 'pipe' });
+  try {
+    execFileSync(join(ASSETS, 'render.sh'), args, { stdio: 'pipe' });
+  } catch (e) {
+    // stdio:'pipe' swallows render.sh's diagnostics, and its message names the
+    // real cause every time it refuses (CRLF input, unreadable plan, template
+    // placeholder gone). Surfacing it turns "Command failed" into the answer.
+    throw new Error(`render.sh failed for ${spec}:\n${e.stderr ? e.stderr.toString().trim() : e.message}`);
+  }
   return out;
 }
 
-const browser = await chromium.launch({ channel: 'chrome' });
+// Two launchers, most reproducible first. The managed build is the one
+// `npx playwright install chromium` fetches, pinned to the playwright-core in
+// package.json, so a run here means the same as a run anywhere. A system Google
+// Chrome is the fallback that needs no download. The fallback is not
+// hypothetical: on the machine this was written on the managed build is absent
+// -- the cache holds chromium revision 1228 and playwright-core 1.62.1 asks for
+// 1234 -- and the system Chrome answers.
+const LAUNCHERS = [
+  ['playwright chromium', {}],
+  ['system chrome', { channel: 'chrome' }]
+];
+
+async function launch() {
+  const why = [];
+  for (const [label, opts] of LAUNCHERS) {
+    try {
+      return await chromium.launch(opts);
+    } catch (e) {
+      why.push(`  ${label}: ${String(e.message).split('\n')[0].trim()}`);
+    }
+  }
+  // A stack trace here would name playwright's internals, not the one thing the
+  // reader has to do about it.
+  console.log('browser: skipped -- no usable browser on this machine.');
+  console.log(why.join('\n'));
+  console.log('\nInstall one of them, then re-run:');
+  console.log('  npx playwright install chromium     # playwright\'s own pinned build');
+  console.log('  ...or install Google Chrome         # used as-is, no download');
+  console.log('\nWalk cases 1-11 in the plan cover the same ground by hand.');
+  process.exit(2);
+}
+
+const browser = await launch();
 
 async function probe(file) {
   const ctx = await browser.newContext();
@@ -3722,10 +3911,17 @@ async function probe(file) {
     chips: document.querySelectorAll('.img-chip').length,
     pwn: window.__PWN === undefined ? null : window.__PWN,
     dagCaption: (document.querySelector('.dag-caption') || {}).textContent || null,
+    // Anchored to .dag-caption's previous sibling, which IS the generated graph
+    // box: the template inserts the box and then the caption before the same
+    // anchor, so they are adjacent siblings. Selecting "the first .mermaid-block
+    // whose data-src starts with flowchart" instead picks up spec.md's own
+    // decorative `flowchart LR / A[Start] --> B[End]` on gate2 -- measured --
+    // and reaches the real graph in the plan-region case only because that
+    // fixture's own fence happens to be a sequenceDiagram.
     dagSrc: (() => {
-      const b = [...document.querySelectorAll('.mermaid-block')]
-        .find(x => (x.dataset.src || '').startsWith('flowchart'));
-      return b ? b.dataset.src : '';
+      const cap = document.querySelector('.dag-caption');
+      const box = cap && cap.previousElementSibling;
+      return box && box.classList.contains('mermaid-block') ? (box.dataset.src || '') : '';
     })()
   }));
   await ctx.close();
@@ -3754,6 +3950,15 @@ async function probe(file) {
   chk('gate2: all three tasks under Plan', plan ? plan.kids.length : 0, 3);
   chk('gate2: dag caption present', typeof r.dagCaption === 'string', true);
   chk('gate2: spec diagram plus dag rendered', [r.light, r.dark], [2, 2]);
+  // The comment above this block promised "only declared edges" while nothing
+  // in the file read an edge. plan.md declares Task 2 -> Task 1 and Task 3 ->
+  // Task 1, Task 99; Task 99 has no heading of its own, and the `Depends on:
+  // Task 2` sitting in PROSE must not become an edge. The exact list is the
+  // only form that says all three at once: a count passes with the wrong pair,
+  // and a some() passes with an extra one alongside the right ones.
+  chk('gate2: graph carries exactly the declared edges',
+      (r.dagSrc.match(/^\s*T\d+ --> T\d+$/gm) || []).map(e => e.trim()),
+      ['T1 --> T2', 'T1 --> T3']);
   chk('gate2: no page errors', r.pageerrors, []);
 }
 
@@ -3836,22 +4041,52 @@ async function probe(file) {
 }
 
 await browser.close();
+// Last, on the only path that reaches the summary: a block that threw never
+// arrives here at all, which is louder still.
+if (pass + fail !== EXPECTED) {
+  no(`assertion inventory: ran ${pass + fail}`, `expected ${EXPECTED}`);
+}
 console.log(`\nbrowser: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
 ```
 
+Four things in this file are not obvious from reading it.
+
+**The launcher** is a two-candidate resolver rather than a single `chromium.launch({ channel: 'chrome' })`, because `channel: 'chrome'` requires a *system Google Chrome* from a manifest that declares `playwright-core` — and the browser most machines with playwright-core actually have is the managed build from `npx playwright install chromium`. Both are tried, managed build first because it is version-pinned to the manifest and so makes a run here mean the same as a run anywhere. Neither is guaranteed, so exhausting both prints a skip line naming what was tried and how to fix it, and exits 2 — a third status, because a skip that exited 0 reads as a pass to anything checking only the status.
+
+**The canary** runs before the browser launches, and it is the only thing standing between this file and its worst failure mode. Every assertion here is worth exactly what `chk` is worth; rewriting `chk` to `(m, got, want) => ok(m)` is one line that changes no pinned selector and no source count. Measured, so neutered: the harness certified a page firing four live requests to `evil.example.invalid` as `browser: 38 passed, 0 failed`, with the shell suite green beside it. The canary reports by **throwing**, never through `no()` — reporting through `no()` would survive `chk` being neutered but go silent the moment `no()` is itself the broken part, and "the reporting path can be trusted" is the whole proposition being established, so the check may not lean on any part of it. It exercises both directions, which also catches a `chk` stubbed to always fail, and a neutered `ok()` or `no()`; each variant names which direction broke. Its two `chk` calls restore the counters afterwards, so the suite is 38 assertions while the file holds 40 `chk(` call sites — the two numbers are *meant* to differ by exactly two, and Step 1 pins both so that adding or removing a real assertion has to move both.
+
+**`EXPECTED` and the inventory check** are the runtime half of the shell's source-count pin, and they are different guarantees. The shell counts the `chk(` calls the file *contains*; this counts the ones it *runs*. Wrapping an assertion block in `if (false)` changes neither the source count nor any pinned selector — measured, it reported `browser: 26 passed, 0 failed`, exit 0, with eleven assertions silently gone. All three of the constant, its use, and the source count are pinned in Step 1, because pinning any two leaves the third free.
+
+**`dagSrc` is anchored to `.dag-caption`'s previous sibling**, which is the generated graph box — the template inserts box then caption before the same anchor, so they are adjacent. The obvious selector, "the first `.mermaid-block` whose `data-src` starts with `flowchart`", resolves on gate 2 to `spec.md`'s own decorative `flowchart LR / A[Start] --> B[End]`, not to the graph; it reaches the real graph in the `plan-region` case only because that fixture's own fence happens to be a `sequenceDiagram`. The gate 2 comment has claimed "only declared edges" since this task was written while nothing in the file read an edge, and an edge assertion built on the unanchored selector would have asserted against the wrong diagram.
+
+**A known, deliberate limit.** Neither the shell block nor the canary detects an assertion rewritten to compare a value to itself — `chk(m, r.offsite, r.offsite)`. The source count is unchanged, every selector still resolves, `chk` still genuinely compares, and the assertion still executes, so the runtime inventory counts it. Measured: three assertions so rewritten leave a clean run at `38 passed, 0 failed` and degrade the gutted-`secure`-list control from `35 passed, 3 failed` to `36 passed, 2 failed` — detection erodes rather than vanishing, which is why it is tolerated. Closing it needs per-call-site pinning of every expected value, which was weighed and declined: it would churn on every ordinary edit for a mutation nothing plausible produces by accident.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: three PASSes, exit 0.
-
-Then, if `npm` and a system Chrome are available:
+Expected: all twelve browser-harness assertions PASS. Confirm the whole suite is green and exits 0:
 
 ```bash
-cd assets/change-brief/tests/browser && npm install && node verify.mjs
+bash assets/change-brief/tests/render_test.sh; echo "exit=$?"
 ```
-Expected: `browser: N passed, 0 failed`, exit 0. If playwright-core cannot install, skip — walk cases 1-11 cover the same ground.
+Expected, measured: `shell: 290 passed, 0 failed`, `exit=0`.
+
+Then run the harness itself. `npm install` needs network once; the browser does not have to be downloaded if the machine already has Google Chrome:
+
+```bash
+cd assets/change-brief/tests/browser && npm install && node verify.mjs; echo "exit=$?"
+```
+Expected, measured against the real fixtures on Google Chrome 150 (the managed chromium was absent — the local cache held revision 1228 and playwright-core 1.62.1 asks for 1234, so the resolver fell through to the system Chrome): `browser: 38 passed, 0 failed`, `exit=0`.
+
+That green is only meaningful because the assertions were shown to discriminate. Measured, against mutated copies of `template.html` supplied through `BRIEF_TEMPLATE` so no repo file was touched:
+
+- Gutting the mermaid `secure` list to `["secure","securityLevel","startOnLoad"]` gives `35 passed, 3 failed`: `beacon: zero offsite requests` collects four live requests to `evil.example.invalid`, `directive cannot re-enable HTML labels` counts 6 `<foreignObject>`, and `directive cannot inject CSS into the emitted stylesheet` counts 2 payload-bearing `<style>` elements.
+- Removing the `h-` prefix from `slug()` gives `37 passed, 1 failed`: `deadAnchors` reports `["database"]`.
+- Injecting a `setTimeout(() => __definitely_not_defined__(), 0)` gives `33 passed, 5 failed`, one per page-error assertion.
+
+These are Task 13, Task 14 and Task 15 properties that had never been executed in a browser before this task.
+
+If no browser can be found the run exits 2 with a skip line — walk cases 1-11 cover the same ground by hand. The temporary render directory is reaped on every exit path: pass, assertion failure, a throw out of `render()`, the canary's throw, and the no-browser skip.
 
 - [ ] **Step 5: Commit**
 
