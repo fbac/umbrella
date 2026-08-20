@@ -4181,6 +4181,20 @@ Append to `assets/change-brief/tests/render_test.sh`, before the final `echo`:
 ```bash
 echo "== BLOCKS.md =="
 B="$S/BLOCKS.md"
+# BLOCKS.md is hard-wrapped prose, so a phrase pin must not depend on where the
+# wrap happens to fall -- `grep -cF` on a phrase spanning a line break reports 0
+# while the rule it names is fully intact. Measured: rewrapping the Inventory
+# paragraph at this file's own 78 columns took the walk-tag pin from 111 to 110,
+# and rewrapping the placement rule at 72 took its pin from 11 to 10. flat()
+# unwraps to one line and squeezes runs of spaces, so bullet continuation indent
+# does not matter either. Same churn argument as the note at 1330-1332: pinning
+# something that moves on an ordinary edit buys nothing and costs every edit.
+# The `grep -cF` pins elsewhere in this suite target template.html JS, where a
+# line IS a semantic unit; prose lines are not.
+flat(){ tr '\n' ' ' < "$1" | tr -s ' '; }
+# Scopes a grep to one `##` section, so a pin that says "under their own
+# heading" tests the containment instead of assuming it.
+sect(){ awk -v h="$2" '$0==h{f=1;next} f&&/^## /{exit} f' "$1"; }
 [ -r "$B" ] && ok "BLOCKS.md present" || no "BLOCKS.md present" "missing"
 for n in $(seq 1 27); do
   if grep -qE "^\| $n \|" "$B" 2>/dev/null; then ok "block $n catalogued"
@@ -4192,21 +4206,46 @@ chk "27 catalog rows" "$(grep -cE '^\| [0-9]+ \|' "$B" 2>/dev/null || echo 0)" "
 # 2 and 1 of those sit in the sections the labels name -- so a BLOCKS.md with
 # the whole `## Rendering a brief` section AND the `**Depends on:**` placement
 # rule deleted, 29 lines and a quarter of the file gone including every render
-# command, still reported 321 passed, 0 failed. Each now anchors on the section
-# heading at line start and on the exact text carrying the rule. Concatenated,
-# not summed: a sum still totals right with one term at zero and another at two.
+# command, still reported 321 passed, 0 failed. Concatenated, not summed: a sum
+# still totals right with one term at zero and another at two. No `|| echo 0`
+# fallback on these terms, unlike the row count above: grep -c exits 1 on a zero
+# count, so the fallback would append a second 0 and read "00" for one term.
 chk "  documents both render gates under their own heading" \
-  "$(grep -cE '^## Rendering a brief$' "$B" 2>/dev/null)$(grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md -o docs/briefs/' "$B" 2>/dev/null)$(grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md docs/plans/<name>.md -o docs/briefs/' "$B" 2>/dev/null)" "111"
+  "$(grep -cE '^## Rendering a brief$' "$B" 2>/dev/null)$(sect "$B" '## Rendering a brief' | grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md -o docs/briefs/')$(sect "$B" '## Rendering a brief' | grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md docs/plans/<name>.md -o docs/briefs/')" "111"
 chk "  documents the Depends on placement rule and its none case" \
-  "$(grep -cF 'first thing in its own paragraph' "$B" 2>/dev/null)$(grep -cF 'Write `none` when a task is independent' "$B" 2>/dev/null)" "11"
+  "$(flat "$B" | grep -cF 'first thing in its own paragraph')$(flat "$B" | grep -cF 'Write `none` when a task is independent')" "11"
 # Task 18's premise is that an agent reading only this file authors correctly.
 # The catalog named the two walk tags in blocks 8 and 25 and the Inventory in
 # block 27 and defined none of the three: an agent knew the tags existed, could
 # not choose between them, and could not write a case. Anchored on the two
-# definition bullets themselves, not on the tag names -- those also appear in
-# three table rows and a badge row, none of which define anything.
+# definition bullets, not on the tag names -- those also sit in two table rows,
+# one of which is the badge row, and in two lines of prose, none of which define
+# anything. The ` — ` separator is deliberately NOT part of the pattern: no
+# other line starts with the tag name as a bullet, and pinning the punctuation
+# would fail on a rewrite to `: ` that changes no rule. The Inventory term stops
+# before `browser-walk-only` for the same reason: a rewrapper that breaks on
+# hyphens splits that compound across the line join, and the phrase pin dies on
+# punctuation again -- measured, textwrap at 78 cols produced `browser-` /
+# `only` and read 110. No flat() anchor now contains a hyphenated compound.
 chk "  defines both walk tags and the Inventory case rule" \
-  "$(grep -cE '^- `static-verifiable` — ' "$B" 2>/dev/null)$(grep -cE '^- `browser-walk-only` — ' "$B" 2>/dev/null)$(grep -cF 'at least one case per `browser-walk-only` task' "$B" 2>/dev/null)" "111"
+  "$(grep -cE '^- `static-verifiable`' "$B" 2>/dev/null)$(grep -cE '^- `browser-walk-only`' "$B" 2>/dev/null)$(flat "$B" | grep -cF 'at least one case per')" "111"
+# `### Task N:` is a hard renderer contract in three places -- DAG node
+# extraction, plan-region collection, and index nesting -- and the catalog
+# documented only block 26's `**Depends on:** Task 3` half of it. Measured
+# against a two-task plan written `### 1. Repository scaffold`: no dependency
+# graph rendered AT ALL, and with a `##` between the tasks the second was
+# indexed under that section instead of Plan. Both silent.
+chk "  documents the ### Task N: heading contract" \
+  "$(flat "$B" | grep -cF 'Task headings must start ``### Task <N>:``')$(flat "$B" | grep -cF 'no dependency graph is drawn at all')" "11"
+# The catalog said which tag to choose and never where to put it, and the
+# placement its wording implied is one the renderer ignores. Measured against
+# `### Task 2: ` + walk tag + ` — Render script`: the badge still paints, so it
+# looks right, while the DAG emits no classDef and no `class T2 walk` line at
+# all and both the node label and the index entry carry the tag text. Measured
+# for the bullet form: a tag on a list item paints no badge whatsoever, because
+# the decorator only reads `h2 code, h3 code`.
+chk "  documents tag placement and that tags go on headings only" \
+  "$(grep -cE '^### Where the tag goes$' "$B" 2>/dev/null)$(flat "$B" | grep -cF 'last in the heading, after a dash')$(flat "$B" | grep -cF 'Tags belong on **headings only**')" "111"
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -4235,6 +4274,15 @@ Canonical spec sections: `Why this change`, `Existing system`, `Design`,
 `Requirements`, `Testing strategy`, and optionally `Out of scope`.
 Canonical plan sections: the tasks as `###`, plus `## Browser-Walk Inventory`.
 
+Task headings must start ``### Task <N>:`` — that literal prefix, carrying the
+number, is what the renderer parses. `### Task 3: Render script` is read as a
+task; `### 3. Render script` is not, and the cost is silent: no dependency graph
+is drawn at all, and if any `##` sits between the task and the start of the
+plan, the index files the task under that section instead of Plan. Decimal ids
+(`Task 3.1`) are fine. This is the half of block 26 that makes it work — a
+`**Depends on:** Task 3` edge can only resolve to a heading the renderer
+recognised as Task 3.
+
 Write exactly one H1, on line 1. `render.sh` strips it — the spec's title
 becomes the masthead. Any H1 further down is flattened to `####`.
 
@@ -4249,7 +4297,7 @@ becomes the masthead. Any H1 further down is flattened to `####`.
 | 5 | Persona × surface × affordance matrix |
 | 6 | Target-state architecture (`flowchart`) |
 | 7 | File structure — create / modify / delete |
-| 8 | Requirements, each tagged `static-verifiable` or `browser-walk-only` |
+| 8 | Requirements, grouped under `static-verifiable` and `browser-walk-only` headings |
 | 9 | Testing strategy |
 
 ## Spec blocks — include when applicable
@@ -4285,24 +4333,57 @@ derives it from block 26.
 
 ## Walk tags and the Inventory
 
-Blocks 8 and 25 tag every requirement and every task with exactly one of two
-words. The deciding property is **what it would take to prove the thing true**:
+Every requirement and every task carries exactly one of two tags — blocks 8 and
+25. The deciding property is **what it would take to prove the thing true**:
 
-- `static-verifiable` — an assertion in `tests/render_test.sh`, or static
-  inspection of the repo, can prove it.
-- `browser-walk-only` — proving it means a person opening the rendered page in
-  a real browser and looking: paint, legibility, layout, print, cross-browser
-  parity. An optional headless smoke test may cover some of these but never
-  converts the tag; where it cannot run, its assertions fall back to the walk.
+- `static-verifiable` — an automated test in the repo, or static inspection of
+  it, can prove it.
+- `browser-walk-only` — proving it means a person opening the rendered page in a
+  real browser and looking: paint, legibility, layout, print, cross-browser
+  parity. An optional headless harness may cover some of these but never
+  converts the tag; where it cannot run, its cases fall back to the walk.
 
 **A >90 review does not clear the `browser-walk-only` class — the walk does.**
 
-Block 27 is where those tasks are discharged. `## Browser-Walk Inventory` is a
-numbered list holding **at least one case per `browser-walk-only` task**. Each
-case is plain prose in full sentences: a bold title, the command that produces
-the artifact or the file to open, the conditions to set up (viewport, theme,
-network state), and what to confirm. Every case opens a local file — no account
-and no login anywhere. Record pass or fail per case.
+That last rule is a **deliberate divergence**, not a derivation. The umbrella
+spec this catalog was extracted from files its headless-harness items under
+`static-verifiable`, hedged with "otherwise these fall to the numbered walk
+cases", and tags the harness task itself `static-verifiable`. The stricter
+reading is kept here because it errs toward more walk cases, which is the safe
+direction.
+
+### Where the tag goes
+
+Put it **last in the heading, after a dash**, written as `code`:
+
+```markdown
+### Task 3: Render script — `browser-walk-only`
+```
+
+The renderer anchors the tag to the **end** of the heading. Lead with it instead
+and it still paints a badge, so it looks correct — while the dependency-graph
+node silently loses its amber and the tag leaks into both the node label and the
+index entry:
+
+```markdown
+### Task 3: `browser-walk-only` — Render script
+```
+
+Tags belong on **headings only**. The badge decorator reads `code` inside `##`
+and `###` and nowhere else, so a tag on an individual requirement bullet renders
+as nothing at all. Group requirements under `` ### `static-verifiable` `` and
+`` ### `browser-walk-only` `` headings, and let each requirement inherit the tag
+of the heading it sits under.
+
+### The Inventory
+
+Block 27 is where the walk-tagged tasks are discharged. `## Browser-Walk
+Inventory` is a numbered list holding **at least one case per
+`browser-walk-only` task**. Each case is plain prose in full sentences: a bold
+title, the command that produces the artifact or the file to open, the
+conditions to set up (viewport, theme, network state), and what to confirm.
+Every case opens a local file — no account and no login anywhere. Record pass or
+fail per case.
 
 ## Markdown conventions
 

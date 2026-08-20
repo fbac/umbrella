@@ -1409,6 +1409,20 @@ chk "verify.mjs's integrity probes still name their selectors" \
 
 echo "== BLOCKS.md =="
 B="$S/BLOCKS.md"
+# BLOCKS.md is hard-wrapped prose, so a phrase pin must not depend on where the
+# wrap happens to fall -- `grep -cF` on a phrase spanning a line break reports 0
+# while the rule it names is fully intact. Measured: rewrapping the Inventory
+# paragraph at this file's own 78 columns took the walk-tag pin from 111 to 110,
+# and rewrapping the placement rule at 72 took its pin from 11 to 10. flat()
+# unwraps to one line and squeezes runs of spaces, so bullet continuation indent
+# does not matter either. Same churn argument as the note at 1330-1332: pinning
+# something that moves on an ordinary edit buys nothing and costs every edit.
+# The `grep -cF` pins elsewhere in this suite target template.html JS, where a
+# line IS a semantic unit; prose lines are not.
+flat(){ tr '\n' ' ' < "$1" | tr -s ' '; }
+# Scopes a grep to one `##` section, so a pin that says "under their own
+# heading" tests the containment instead of assuming it.
+sect(){ awk -v h="$2" '$0==h{f=1;next} f&&/^## /{exit} f' "$1"; }
 [ -r "$B" ] && ok "BLOCKS.md present" || no "BLOCKS.md present" "missing"
 for n in $(seq 1 27); do
   if grep -qE "^\| $n \|" "$B" 2>/dev/null; then ok "block $n catalogued"
@@ -1420,22 +1434,46 @@ chk "27 catalog rows" "$(grep -cE '^\| [0-9]+ \|' "$B" 2>/dev/null || echo 0)" "
 # 2 and 1 of those sit in the sections the labels name -- so a BLOCKS.md with
 # the whole `## Rendering a brief` section AND the `**Depends on:**` placement
 # rule deleted, 29 lines and a quarter of the file gone including every render
-# command, still reported 321 passed, 0 failed. Each now anchors on the section
-# heading at line start and on the exact text carrying the rule. Concatenated,
-# not summed: a sum still totals right with one term at zero and another at two.
+# command, still reported 321 passed, 0 failed. Concatenated, not summed: a sum
+# still totals right with one term at zero and another at two. No `|| echo 0`
+# fallback on these terms, unlike the row count above: grep -c exits 1 on a zero
+# count, so the fallback would append a second 0 and read "00" for one term.
 chk "  documents both render gates under their own heading" \
-  "$(grep -cE '^## Rendering a brief$' "$B" 2>/dev/null)$(grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md -o docs/briefs/' "$B" 2>/dev/null)$(grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md docs/plans/<name>.md -o docs/briefs/' "$B" 2>/dev/null)" "111"
+  "$(grep -cE '^## Rendering a brief$' "$B" 2>/dev/null)$(sect "$B" '## Rendering a brief' | grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md -o docs/briefs/')$(sect "$B" '## Rendering a brief' | grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md docs/plans/<name>.md -o docs/briefs/')" "111"
 chk "  documents the Depends on placement rule and its none case" \
-  "$(grep -cF 'first thing in its own paragraph' "$B" 2>/dev/null)$(grep -cF 'Write `none` when a task is independent' "$B" 2>/dev/null)" "11"
+  "$(flat "$B" | grep -cF 'first thing in its own paragraph')$(flat "$B" | grep -cF 'Write `none` when a task is independent')" "11"
 # Task 18's premise is that an agent reading only this file authors correctly.
 # The catalog named the two walk tags in blocks 8 and 25 and the Inventory in
 # block 27 and defined none of the three: an agent knew the tags existed, could
 # not choose between them, and could not write a case. Anchored on the two
-# definition bullets themselves, not on the tag names -- those also appear in
-# three table rows and a badge row, none of which define anything.
+# definition bullets, not on the tag names -- those also sit in two table rows,
+# one of which is the badge row, and in two lines of prose, none of which define
+# anything. The ` — ` separator is deliberately NOT part of the pattern: no
+# other line starts with the tag name as a bullet, and pinning the punctuation
+# would fail on a rewrite to `: ` that changes no rule. The Inventory term stops
+# before `browser-walk-only` for the same reason: a rewrapper that breaks on
+# hyphens splits that compound across the line join, and the phrase pin dies on
+# punctuation again -- measured, textwrap at 78 cols produced `browser-` /
+# `only` and read 110. No flat() anchor now contains a hyphenated compound.
 chk "  defines both walk tags and the Inventory case rule" \
-  "$(grep -cE '^- `static-verifiable` — ' "$B" 2>/dev/null)$(grep -cE '^- `browser-walk-only` — ' "$B" 2>/dev/null)$(grep -cF 'at least one case per `browser-walk-only` task' "$B" 2>/dev/null)" "111"
-
+  "$(grep -cE '^- `static-verifiable`' "$B" 2>/dev/null)$(grep -cE '^- `browser-walk-only`' "$B" 2>/dev/null)$(flat "$B" | grep -cF 'at least one case per')" "111"
+# `### Task N:` is a hard renderer contract in three places -- DAG node
+# extraction, plan-region collection, and index nesting -- and the catalog
+# documented only block 26's `**Depends on:** Task 3` half of it. Measured
+# against a two-task plan written `### 1. Repository scaffold`: no dependency
+# graph rendered AT ALL, and with a `##` between the tasks the second was
+# indexed under that section instead of Plan. Both silent.
+chk "  documents the ### Task N: heading contract" \
+  "$(flat "$B" | grep -cF 'Task headings must start ``### Task <N>:``')$(flat "$B" | grep -cF 'no dependency graph is drawn at all')" "11"
+# The catalog said which tag to choose and never where to put it, and the
+# placement its wording implied is one the renderer ignores. Measured against
+# `### Task 2: ` + walk tag + ` — Render script`: the badge still paints, so it
+# looks right, while the DAG emits no classDef and no `class T2 walk` line at
+# all and both the node label and the index entry carry the tag text. Measured
+# for the bullet form: a tag on a list item paints no badge whatsoever, because
+# the decorator only reads `h2 code, h3 code`.
+chk "  documents tag placement and that tags go on headings only" \
+  "$(grep -cE '^### Where the tag goes$' "$B" 2>/dev/null)$(flat "$B" | grep -cF 'last in the heading, after a dash')$(flat "$B" | grep -cF 'Tags belong on **headings only**')" "111"
 echo "== brainstorming skill hooks =="
 BS="$R/skills/brainstorming/SKILL.md"
 grep -q 'BLOCKS.md' "$BS" && ok "step 7 points at the block catalog" \

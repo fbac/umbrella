@@ -14,6 +14,15 @@ Canonical spec sections: `Why this change`, `Existing system`, `Design`,
 `Requirements`, `Testing strategy`, and optionally `Out of scope`.
 Canonical plan sections: the tasks as `###`, plus `## Browser-Walk Inventory`.
 
+Task headings must start ``### Task <N>:`` — that literal prefix, carrying the
+number, is what the renderer parses. `### Task 3: Render script` is read as a
+task; `### 3. Render script` is not, and the cost is silent: no dependency graph
+is drawn at all, and if any `##` sits between the task and the start of the
+plan, the index files the task under that section instead of Plan. Decimal ids
+(`Task 3.1`) are fine. This is the half of block 26 that makes it work — a
+`**Depends on:** Task 3` edge can only resolve to a heading the renderer
+recognised as Task 3.
+
 Write exactly one H1, on line 1. `render.sh` strips it — the spec's title
 becomes the masthead. Any H1 further down is flattened to `####`.
 
@@ -28,7 +37,7 @@ becomes the masthead. Any H1 further down is flattened to `####`.
 | 5 | Persona × surface × affordance matrix |
 | 6 | Target-state architecture (`flowchart`) |
 | 7 | File structure — create / modify / delete |
-| 8 | Requirements, each tagged `static-verifiable` or `browser-walk-only` |
+| 8 | Requirements, grouped under `static-verifiable` and `browser-walk-only` headings |
 | 9 | Testing strategy |
 
 ## Spec blocks — include when applicable
@@ -64,24 +73,57 @@ derives it from block 26.
 
 ## Walk tags and the Inventory
 
-Blocks 8 and 25 tag every requirement and every task with exactly one of two
-words. The deciding property is **what it would take to prove the thing true**:
+Every requirement and every task carries exactly one of two tags — blocks 8 and
+25. The deciding property is **what it would take to prove the thing true**:
 
-- `static-verifiable` — an assertion in `tests/render_test.sh`, or static
-  inspection of the repo, can prove it.
-- `browser-walk-only` — proving it means a person opening the rendered page in
-  a real browser and looking: paint, legibility, layout, print, cross-browser
-  parity. An optional headless smoke test may cover some of these but never
-  converts the tag; where it cannot run, its assertions fall back to the walk.
+- `static-verifiable` — an automated test in the repo, or static inspection of
+  it, can prove it.
+- `browser-walk-only` — proving it means a person opening the rendered page in a
+  real browser and looking: paint, legibility, layout, print, cross-browser
+  parity. An optional headless harness may cover some of these but never
+  converts the tag; where it cannot run, its cases fall back to the walk.
 
 **A >90 review does not clear the `browser-walk-only` class — the walk does.**
 
-Block 27 is where those tasks are discharged. `## Browser-Walk Inventory` is a
-numbered list holding **at least one case per `browser-walk-only` task**. Each
-case is plain prose in full sentences: a bold title, the command that produces
-the artifact or the file to open, the conditions to set up (viewport, theme,
-network state), and what to confirm. Every case opens a local file — no account
-and no login anywhere. Record pass or fail per case.
+That last rule is a **deliberate divergence**, not a derivation. The umbrella
+spec this catalog was extracted from files its headless-harness items under
+`static-verifiable`, hedged with "otherwise these fall to the numbered walk
+cases", and tags the harness task itself `static-verifiable`. The stricter
+reading is kept here because it errs toward more walk cases, which is the safe
+direction.
+
+### Where the tag goes
+
+Put it **last in the heading, after a dash**, written as `code`:
+
+```markdown
+### Task 3: Render script — `browser-walk-only`
+```
+
+The renderer anchors the tag to the **end** of the heading. Lead with it instead
+and it still paints a badge, so it looks correct — while the dependency-graph
+node silently loses its amber and the tag leaks into both the node label and the
+index entry:
+
+```markdown
+### Task 3: `browser-walk-only` — Render script
+```
+
+Tags belong on **headings only**. The badge decorator reads `code` inside `##`
+and `###` and nowhere else, so a tag on an individual requirement bullet renders
+as nothing at all. Group requirements under `` ### `static-verifiable` `` and
+`` ### `browser-walk-only` `` headings, and let each requirement inherit the tag
+of the heading it sits under.
+
+### The Inventory
+
+Block 27 is where the walk-tagged tasks are discharged. `## Browser-Walk
+Inventory` is a numbered list holding **at least one case per
+`browser-walk-only` task**. Each case is plain prose in full sentences: a bold
+title, the command that produces the artifact or the file to open, the
+conditions to set up (viewport, theme, network state), and what to confirm.
+Every case opens a local file — no account and no login anywhere. Record pass or
+fail per case.
 
 ## Markdown conventions
 
