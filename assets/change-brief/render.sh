@@ -54,6 +54,17 @@ done
 # file, not merely a readable path; -f follows symlinks, so a symlink to a
 # real spec still passes.
 [ -f "$SPEC" ] && [ -r "$SPEC" ] || { echo "render.sh: cannot read spec $SPEC" >&2; exit 1; }
+# -o aimed at one of the sources destroys it, and reports success doing it.
+# Measured before this guard: `render.sh s.md -o s.md` exits 0 having replaced
+# a 24-byte spec with 3445956 bytes of its own HTML. The markdown is the source
+# of truth for every agent in this system and nothing reads the brief back, so
+# that is unrecoverable loss dressed as a successful render. -ef compares
+# device and inode, which catches ./s.md, a symlink, and an absolute spelling
+# of the same file, none of which a string compare would.
+for src in "$SPEC" "$PLAN"; do
+  [ -n "$src" ] || continue
+  [ "$OUT" -ef "$src" ] 2>/dev/null && { echo "render.sh: -o would overwrite the source $src" >&2; exit 1; }
+done
 # strip_h1's blank-line and heading regexes do not account for a trailing
 # \r, so a CRLF spec silently skips the H1 strip instead of failing — the
 # same trap the template guard below exists for. Reject here, once, before

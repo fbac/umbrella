@@ -5007,10 +5007,15 @@ no(){ printf '  FAIL  %s :: %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 CACHE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/umbrella/umbrella"
 INSTALL="$(ls -d "$CACHE"/*/ 2>/dev/null | sort -V | tail -1)"
 
+# Three-valued on purpose, matching tests/browser/verify.mjs: 0 every assertion
+# passed, 1 an assertion failed, 2 nothing to run against. A skip that exited 0
+# reads as a pass to anything checking only the status -- and "the plugin is not
+# installed" is precisely the state in which this script has verified nothing at
+# all, so it is the last one that may look green.
 if [ -z "$INSTALL" ]; then
   echo "  SKIP  umbrella is not installed under $CACHE"
   echo "        install the plugin, then re-run this script"
-  exit 0
+  exit 2
 fi
 echo "install: $INSTALL"
 
@@ -5045,7 +5050,7 @@ echo "resolve: $pass passed, $fail failed"
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/resolve_test.sh`
-Expected: either `SKIP` (plugin not installed yet) or FAILs because the installed copy predates this change.
+Expected: either `SKIP` with exit 2 (plugin not installed yet) or FAILs with exit 1 because the installed copy predates this change.
 
 - [ ] **Step 3: Reinstall the plugin and confirm**
 
@@ -5088,7 +5093,11 @@ Run:
 bash assets/change-brief/tests/render_test.sh; echo "exit=$?"
 bash assets/change-brief/tests/resolve_test.sh; echo "exit=$?"
 ```
-Expected: both report `0 failed` and `exit=0`.
+Expected: `render_test.sh` reports `0 failed` and `exit=0`. `resolve_test.sh`
+is three-valued and reports against whatever is installed: `exit=0` once the
+plugin has been reinstalled from this branch, `exit=1` while the installed copy
+still predates it, `exit=2` when umbrella is not installed at all. Only `exit=1`
+is a defect in this change; `exit=2` means the check has not run yet.
 
 - [ ] **Step 2: Run the headless smoke test if available**
 
