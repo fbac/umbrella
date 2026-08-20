@@ -62,6 +62,27 @@ becomes the masthead. Any H1 further down is flattened to `####`.
 The task dependency graph is **not** an agent-authored block. The renderer
 derives it from block 26.
 
+## Walk tags and the Inventory
+
+Blocks 8 and 25 tag every requirement and every task with exactly one of two
+words. The deciding property is **what it would take to prove the thing true**:
+
+- `static-verifiable` — an assertion in `tests/render_test.sh`, or static
+  inspection of the repo, can prove it.
+- `browser-walk-only` — proving it means a person opening the rendered page in
+  a real browser and looking: paint, legibility, layout, print, cross-browser
+  parity. An optional headless smoke test may cover some of these but never
+  converts the tag; where it cannot run, its assertions fall back to the walk.
+
+**A >90 review does not clear the `browser-walk-only` class — the walk does.**
+
+Block 27 is where those tasks are discharged. `## Browser-Walk Inventory` is a
+numbered list holding **at least one case per `browser-walk-only` task**. Each
+case is plain prose in full sentences: a bold title, the command that produces
+the artifact or the file to open, the conditions to set up (viewport, theme,
+network state), and what to confirm. Every case opens a local file — no account
+and no login anywhere. Record pass or fail per case.
+
 ## Markdown conventions
 
 | You write | The renderer paints |

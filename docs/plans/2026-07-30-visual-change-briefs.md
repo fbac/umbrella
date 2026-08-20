@@ -4119,10 +4119,26 @@ for n in $(seq 1 27); do
   else no "block $n catalogued" "missing"; fi
 done
 chk "27 catalog rows" "$(grep -cE '^\| [0-9]+ \|' "$B" 2>/dev/null || echo 0)" "27"
-grep -q 'render.sh' "$B" 2>/dev/null && ok "  documents the render command" \
-  || no "  documents the render command" "missing"
-grep -q 'Depends on:' "$B" 2>/dev/null && ok "  documents the Depends on syntax" \
-  || no "  documents the Depends on syntax" "missing"
+# Both pins below were bare `grep -q` substrings until a mutant measured them.
+# `render.sh` occurs 5 times in the catalog and `Depends on:` 3 times, but only
+# 2 and 1 of those sit in the sections the labels name -- so a BLOCKS.md with
+# the whole `## Rendering a brief` section AND the `**Depends on:**` placement
+# rule deleted, 29 lines and a quarter of the file gone including every render
+# command, still reported 321 passed, 0 failed. Each now anchors on the section
+# heading at line start and on the exact text carrying the rule. Concatenated,
+# not summed: a sum still totals right with one term at zero and another at two.
+chk "  documents both render gates under their own heading" \
+  "$(grep -cE '^## Rendering a brief$' "$B" 2>/dev/null)$(grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md -o docs/briefs/' "$B" 2>/dev/null)$(grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md docs/plans/<name>.md -o docs/briefs/' "$B" 2>/dev/null)" "111"
+chk "  documents the Depends on placement rule and its none case" \
+  "$(grep -cF 'first thing in its own paragraph' "$B" 2>/dev/null)$(grep -cF 'Write `none` when a task is independent' "$B" 2>/dev/null)" "11"
+# Task 18's premise is that an agent reading only this file authors correctly.
+# The catalog named the two walk tags in blocks 8 and 25 and the Inventory in
+# block 27 and defined none of the three: an agent knew the tags existed, could
+# not choose between them, and could not write a case. Anchored on the two
+# definition bullets themselves, not on the tag names -- those also appear in
+# three table rows and a badge row, none of which define anything.
+chk "  defines both walk tags and the Inventory case rule" \
+  "$(grep -cE '^- `static-verifiable` — ' "$B" 2>/dev/null)$(grep -cE '^- `browser-walk-only` — ' "$B" 2>/dev/null)$(grep -cF 'at least one case per `browser-walk-only` task' "$B" 2>/dev/null)" "111"
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -4198,6 +4214,27 @@ becomes the masthead. Any H1 further down is flattened to `####`.
 
 The task dependency graph is **not** an agent-authored block. The renderer
 derives it from block 26.
+
+## Walk tags and the Inventory
+
+Blocks 8 and 25 tag every requirement and every task with exactly one of two
+words. The deciding property is **what it would take to prove the thing true**:
+
+- `static-verifiable` — an assertion in `tests/render_test.sh`, or static
+  inspection of the repo, can prove it.
+- `browser-walk-only` — proving it means a person opening the rendered page in
+  a real browser and looking: paint, legibility, layout, print, cross-browser
+  parity. An optional headless smoke test may cover some of these but never
+  converts the tag; where it cannot run, its assertions fall back to the walk.
+
+**A >90 review does not clear the `browser-walk-only` class — the walk does.**
+
+Block 27 is where those tasks are discharged. `## Browser-Walk Inventory` is a
+numbered list holding **at least one case per `browser-walk-only` task**. Each
+case is plain prose in full sentences: a bold title, the command that produces
+the artifact or the file to open, the conditions to set up (viewport, theme,
+network state), and what to confirm. Every case opens a local file — no account
+and no login anywhere. Record pass or fail per case.
 
 ## Markdown conventions
 
