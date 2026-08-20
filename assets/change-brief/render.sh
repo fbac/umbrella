@@ -16,8 +16,19 @@ SPEC=""; PLAN=""; OUT=""
 
 # Never leave a half-written brief on disk: a truncated file that opens blank
 # is worse than no file, because it looks like a render that succeeded.
+# FAILED is set from the start and cleared only on the last line, so the trap
+# deletes $OUT on EVERY exit path rather than only the ones that route through
+# die(). It used to be set by die() alone, which left the whole final write
+# uncovered: `set -e` aborting inside the sed that produces $OUT is not a die().
+# Measured on a 19MB ramdisk with ~2MB free, rendering a 3.4MB brief:
+#   sed: stdout: No space left on device
+#   exit=1, and a 2097152-byte out.html left on disk
+# which Chrome opens as a completely blank page -- 0 body children, no banner,
+# cut mid-way through the minified vendor bundle so there is no closing
+# </script> and no payload. Verbatim the outcome the sentence below forbids.
 cleanup() { [ -n "${OUT:-}" ] && [ -n "${FAILED:-}" ] && rm -f "$OUT"; rm -rf "${TMP:-}"; }
 die() { FAILED=1; echo "render.sh: $*" >&2; exit 1; }
+FAILED=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -258,4 +269,8 @@ fi
 tpl_bytes=$(wc -c < "$TPL"); out_bytes=$(wc -c < "$OUT")
 [ "$out_bytes" -gt "$tpl_bytes" ] || die "output ($out_bytes B) is not larger than template ($tpl_bytes B)"
 
+# Past every check that can condemn the file: from here the brief is keepable,
+# so disarm the trap's rm. Last thing before the path goes to stdout, because
+# anything added after this line would run unprotected.
+FAILED=""
 echo "$OUT"

@@ -456,7 +456,17 @@ __BRIEF_B64__
      "unterminated fence" on a backtick info string containing a backtick. A
      reader-facing banner that cries wolf on a correct brief disarms the
      backstop. The stderr line still reaches the author. */
-  decodeB64(document.body.dataset.diag).split("\n").forEach(function(w){
+  /* safeDecode, not decodeB64: this was the one bare decode left at IIFE top
+     level, and it is upstream of everything. Measured by corrupting each
+     data-* attribute in turn on one real brief -- a bad data-title or
+     data-sources costs only the masthead (toc 10, diagrams 4, badges 3,
+     progress 3, unchanged), while a bad data-diag gave toc 0, diagrams 0,
+     badges 0, progress 0, an uncaught "Failed to execute 'atob'", and
+     data-diagrams never set at all: the index, every diagram, the badges, the
+     progress bars and the mermaid extraction all die, and a harness waiting on
+     [data-diagrams] hangs forever. The suite already asserts this containment
+     for title and sources by name; this was the third site. */
+  safeDecode(document.body.dataset.diag, "diagnostics: decode").split("\n").forEach(function(w){
     if (planH2) return;
     if (w.trim()) banner("Source problem", w.trim());
   });
