@@ -5455,6 +5455,8 @@ A consequence worth knowing: `nsIds()` also removed the only *fixture* collision
 
 **Case 9 — cross-browser.** Chrome 151, Playwright Firefox and Playwright WebKit, same page, same numbers in all three: 58 index entries, 11 groups, 4 light and 4 dark diagrams, 0 error boxes, 0 integrity banners, 0 duplicated ids, 0 dead anchors, no body overflow, theme toggle works, 0 offsite requests, no page errors. The honest limit: WebKit is Safari's engine, not Safari.app, and there is no Firefox.app on this machine — the Playwright builds are what ran.
 
+**Re-run after the final review's fixes, same day.** The walk was executed a second time once the review round had landed — `scan.awk`'s fence closer, `sweepLinks`, the `safeDecode` containment, the `-o` guard and the trap change. Same 76 assertions, 0 failed, and case 9 still identical across Chrome, Firefox and WebKit: 59 index entries, 4+4 diagrams, 0 duplicated ids, 0 dead anchors, no body overflow, 0 offsite requests, no page errors in all three.
+
 **`resolve_test.sh` needs a reinstall to pass, by design.** Against the installed plugin on this machine — cached before this branch existed and shipping no `assets/` — it reports `0 passed, 7 failed`, exit 1. Against a fresh install of this working tree through the real installer it reports `7 passed, 0 failed`, exit 0, and a real spec renders through the installed `render.sh` with nothing on stderr. The plugin payload does carry `assets/`; the stale cache is age, not a packaging gap. Re-run it after the branch is pushed and the plugin reinstalled.
 
 ---
