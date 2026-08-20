@@ -31,7 +31,7 @@ process.on('exit', () => rmSync(W, { recursive: true, force: true }));
 // Measured: `// 4. Inertness.\n{` -> `if (false) {` reported 26 passed, 0
 // failed, exit 0. Keep this in step with render_test.sh's inventory pin; both
 // move together, and so does the plan's Step 4 number.
-const EXPECTED = 40;
+const EXPECTED = 44;
 
 let pass = 0, fail = 0;
 const ok = m => { console.log('  PASS  ' + m); pass++; };
@@ -56,7 +56,7 @@ const chk = (m, got, want) =>
 // chk stubbed to always FAIL is caught by the same block.
 //
 // The counters are restored afterwards, so the canary costs nothing against
-// EXPECTED: the suite is 40 assertions while the file holds 42 chk( call sites.
+// EXPECTED: the suite is 44 assertions while the file holds 46 chk( call sites.
 // render_test.sh pins both numbers, and they are meant to differ by exactly the
 // two calls below.
 {
@@ -166,7 +166,39 @@ async function probe(file) {
       h2: g.querySelector('a.lvl2').textContent,
       kids: [...g.querySelectorAll('.kids a')].map(a => a.textContent)
     })),
-    anchors: [...document.querySelectorAll('#content a')].map(a => ({ href: a.getAttribute('href'), host: a.host })),
+    // SVG anchors are anchors. The <a> a mermaid `click ... href` directive
+    // builds carries xlink:href, where getAttribute('href') is null, and a.host
+    // is undefined on every SVGAElement -- so the previous shape audited a
+    // diagram full of live remote links as nothing at all, and reported the
+    // same clean answer whether one was there or not. Both spellings are read.
+    //
+    // The target is resolved through `new URL(..., document.baseURI)` rather
+    // than read off a.host, for the second half of the same blindness: data:,
+    // vbscript: and javascript: all resolve to an EMPTY host -- three of the
+    // five demotions BLOCKS.md promises -- so a check that filters on host
+    // discards exactly those before comparing anything. The scheme sees them.
+    anchors: [...document.querySelectorAll('#content a')].map(a => {
+      const href = a.hasAttribute('href') ? a.getAttribute('href')
+                 : (a.hasAttribute('xlink:href') ? a.getAttribute('xlink:href') : null);
+      let scheme = null, host = null;
+      if (href !== null) {
+        try { const u = new URL(href, document.baseURI); scheme = u.protocol.slice(0, -1); host = u.host; }
+        catch (e) { scheme = 'unparseable'; host = ''; }
+      }
+      const first = a.firstElementChild;
+      return {
+        href, scheme, host,
+        svg: !!a.ownerSVGElement,
+        // Which theme render the anchor sits in. Both are built up front, so a
+        // sweep that ran on the light pass alone leaves the dark one live, and
+        // a page-wide total cannot tell that apart from a clean page.
+        slot: a.closest('.d-dark') ? 'dark' : (a.closest('.d-light') ? 'light' : 'doc'),
+        // template.html demotes a rejected diagram target by stripping the
+        // linking attributes and putting `label (href)` into an SVG <title> --
+        // the same shape the markdown renderer gives a rejected link.
+        demoted: first && first.tagName.toLowerCase() === 'title' ? first.textContent : null
+      };
+    }),
     // Every index entry must resolve to its own heading. This runs after the
     // waitForSelector above, so the diagram chain has finished and every id the
     // library injects -- including the unnamespaced literals it does not
@@ -351,10 +383,24 @@ async function narrow(file, width) {
   chk('beacon: zero offsite requests', r.offsite, []);
   chk('beacon: remote image is a chip', r.chips, 1);
   chk('beacon: nothing executed', r.pwn, null);
-  const hosts = r.anchors.map(a => a.host).filter(Boolean);
-  chk('beacon: no anchor reaches a remote host', hosts, ['example.com']);
+  // Every anchor by scheme AND host, not `.filter(Boolean)` over hosts, which
+  // was the old shape. javascript:, data: and vbscript: all resolve to an empty
+  // host, so a host filter throws away three of the five schemes BLOCKS.md
+  // promises to demote before any comparison happens. Measured: with
+  // `|| /^(ftp|data)$/i.test(m[1])` appended to safeHref's allowlist -- a
+  // mutation that leaves intact the exact literal render_test.sh greps for, so
+  // the shell suite cannot see it by construction -- a live data:text/html
+  // anchor sat in #content and the old assertion reported ['example.com'] and
+  // PASSED. This fixture now carries a data: and a vbscript: link so the
+  // mutation has an input to be seen through.
+  chk('beacon: every surviving anchor is a local path or the one allowed https host',
+      r.anchors.map(a => a.scheme + '|' + a.host).sort(),
+      ['file|', 'file|', 'https|example.com']);
   const hrefs = r.anchors.map(a => a.href);
-  chk('beacon: javascript and UNC hrefs demoted', hrefs.includes('javascript:window.__PWN=1'), false);
+  // Named for the one half it tests. The label used to promise the UNC half
+  // too and never went near it; that property belongs to the scheme/host
+  // assertion above, which grows a host the moment a `//host` spelling lives.
+  chk('beacon: the javascript href is demoted', hrefs.includes('javascript:window.__PWN=1'), false);
   chk('beacon: bare relative link kept', hrefs.includes('BLOCKS.md'), true);
   // Task 13's Critical, regression-tested in a real browser: the fence in this
   // fixture carries %%{init:{"flowchart":{"htmlLabels":true}}}%% and an <img>
@@ -437,6 +483,81 @@ async function narrow(file, width) {
   chk('narrow: an unbreakable token in prose never scrolls the body at 480px',
       { overflowedAt: n.overflows, tokenWiderThanViewport: n.tokenWiderThanViewport },
       { overflowedAt: [], tokenWiderThanViewport: true });
+}
+
+// 8. mermaid `click ... href` -- the one route to an anchor that never passes
+// the markdown renderer, and the one the shell suite structurally cannot reach.
+// Measured against template.html before sweepLinks existed, on real render.sh
+// output: securityLevel:"strict" stripped javascript: and `click ... call`, and
+// passed `//host`, `/\host` and `\\host\share` through verbatim into an
+// <a xlink:href> in BOTH theme renders -- six live remote anchors on one page.
+// Clicking one in the dark render took location.href off the brief; on Windows
+// that target is an SMB authentication attempt to a host of the payload's
+// choosing. Load-time inertness was never involved, which is why every other
+// probe on this page reads clean while it is wide open.
+//
+// Written into W rather than added to tests/fixtures/, for the reason block 7
+// gives and one more: Task 16 pins beacon.md's payload-host line count at
+// three, and every click directive here would add a fourth.
+{
+  const md = join(W, 'click.md');
+  writeFileSync(md, [
+    '# Mermaid Click Probe',
+    '',
+    '## Why this change',
+    '',
+    'One fence, nothing else that emits an anchor, so the anchors read below are',
+    'this fence\'s and no other\'s. Node D is the allowlisted control: a sweep that',
+    'demoted everything would satisfy an all-absent check just as well as a',
+    'correct one, and D is what tells those two apart.',
+    '',
+    '```mermaid',
+    'flowchart LR',
+    '  A[pr] --> B[bs]',
+    '  B --> C[unc]',
+    '  C --> D[ok]',
+    '  D --> E[js]',
+    '  E --> F[call]',
+    '  click A href "//evil.example.invalid/share"',
+    '  click B href "/\\evil.example.invalid/share"',
+    '  click C href "\\\\evil.example.invalid\\share"',
+    '  click D href "https://example.com/"',
+    '  click E href "javascript:window.__PWN=1"',
+    '  click F call pwnFn()',
+    '```',
+    ''
+  ].join('\n'));
+  const f = render(md, null, join(W, 'click.html'));
+  const r = await probe(f);
+  const svg = r.anchors.filter(a => a.svg);
+  const perSlot = s => svg.filter(a => a.slot === s).map(a => a.href);
+
+  // The exact per-slot list, because no weaker form says all of it at once. A
+  // count passes with the wrong five; an all-absent check passes on a page with
+  // no SVG anchors at all, which is precisely what the old collector reported;
+  // and a single page-wide list passes with the dark render left live. Five
+  // entries per slot: A, B and C demoted by template.html, D allowed through,
+  // E stripped by mermaid's own strict mode, and F's `call` form never becomes
+  // an anchor at all -- so this also pins the two mermaid guarantees relied on.
+  const HREFS = [null, null, null, 'https://example.com/', null];
+  chk('click: both theme renders were swept, and only the allowed target survives',
+      [perSlot('light'), perSlot('dark')], [HREFS, HREFS]);
+
+  // The positive half, and the one that says the demotion MATCHES the markdown
+  // path rather than merely happening: a rejected markdown link renders as
+  // `text (href)`, so a rejected diagram target says the same thing from an SVG
+  // <title>. All three hostile spellings, in document order, in both renders.
+  const TITLES = [
+    'pr (//evil.example.invalid/share)',
+    'bs (/\\evil.example.invalid/share)',
+    'unc (\\\\evil.example.invalid\\share)'
+  ];
+  chk('click: a rejected diagram target is demoted the way a rejected link is',
+      ['light', 'dark'].map(s2 => svg.filter(a => a.slot === s2 && a.demoted !== null).map(a => a.demoted)),
+      [TITLES, TITLES]);
+
+  chk('click: no offsite requests', r.offsite, []);
+  chk('click: no page errors', r.pageerrors, []);
 }
 
 await browser.close();

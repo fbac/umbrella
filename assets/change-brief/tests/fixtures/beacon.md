@@ -8,7 +8,10 @@ Raw HTML: <img src=x onerror="window.__PWN=1">
 
 Bad link: [click](javascript:window.__PWN=1)
 
-UNC link: [unc](/\evil.example.invalid/share)
+Executable-URL links, the two schemes BLOCKS.md promises to demote that nothing here
+carried: [data](data:text/html,<script>window.__PWN=1</script>) and [vb](vbscript:MsgBox(1)).
+
+UNC link: [unc](/\evil.example.invalid/share) and its protocol-relative twin [pr](//evil.example.invalid/share)
 
 Good link: [BLOCKS](BLOCKS.md) and [fragment](#design) and [web](https://example.com/).
 

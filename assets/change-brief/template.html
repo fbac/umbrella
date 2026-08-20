@@ -341,6 +341,93 @@ __BRIEF_B64__
     content.parentNode.insertBefore(b, content);
   }
 
+  /* ---------- link policy: one allowlist, two surfaces ---------- */
+  /* At IIFE scope, not inside the inertness guard below, because markdown
+     links are not the only thing on this page that produces an anchor. A
+     mermaid `click N href "..."` directive puts one straight into the emitted
+     SVG, and that anchor never goes near a markdown renderer. Measured on real
+     render.sh output before sweepLinks existed: the strict security level the
+     renderer sets below does strip javascript:, data: and `click ... call`,
+     and it passes `//host`, `/\host` and `\\host\share` through verbatim.
+     Three such directives produced SIX live anchors, three in the light render
+     and three in the dark one, every one of them resolving to
+     file://evil.example.invalid/share; clicking one in either render took
+     location.href off the brief to chrome-error://chromewebdata/. On Windows
+     that target is an SMB authentication attempt to a host of the payload's
+     choosing. None of it fires on LOAD, which is exactly why every other probe
+     on the page reads clean while it is wide open.
+
+     Hoisted rather than restated beside the diagram renderer. Two copies of a
+     rule are two rules, and this file has been bitten once already by a check
+     and its embed drifting apart -- see normalizeHref below. */
+  /* Scheme-based, not prefix-based. A prefix allowlist that admits "./x" but
+     not the equally common bare "BLOCKS.md" silently demotes valid links, and
+     an allowlist is the wrong shape for the question anyway: what matters is
+     whether a scheme is present and dangerous. Control characters and
+     whitespace are stripped first — "java&#9;script:" is a live scheme. */
+  function decodeEntities(s){
+    /* A textarea decodes character references without executing anything.
+       Needed because "java&#9;script:" is not a control character at the
+       source level, but the browser decodes the entity to a tab and then
+       strips it, reconstituting a live javascript: scheme. */
+    var t = document.createElement("textarea");
+    t.innerHTML = String(s || "");
+    return t.value;
+  }
+  function normalizeHref(raw){
+    // Backslashes are normalised to "/" BEFORE the check. For special schemes
+    // (file: among them) the WHATWG URL parser treats "\" as "/", so "/\host"
+    // is an equivalent spelling of "//host" and reaches the same remote host.
+    // Both renderers below embed THIS normalized value, not the raw input --
+    // validating one string and embedding a different one is how a check
+    // and its embed can silently drift apart.
+    return decodeEntities(raw).replace(/[\u0000-\u0020\u007f]/g, "").replace(/\\/g, "/");
+  }
+  function safeHref(h){
+    // "//host/x" has no scheme but is not document-relative: it resolves to
+    // file://host/x, which on Windows is a UNC path and a click attempts an
+    // SMB connection to an attacker-chosen host.
+    if (/^\/\//.test(h)) return false;
+    var m = h.match(/^([a-z][a-z0-9+.\-]*):/i);
+    if (!m) return true;                              // no scheme: relative or fragment
+    return /^(https?|mailto)$/i.test(m[1]);
+  }
+
+  /* The same allowlist, applied to a rendered diagram. Both attribute
+     spellings are swept: mermaid's dagre path writes xlink:href and its
+     state/flowchart renderers write href, and a sweep that knows only one of
+     them leaves the other live. Called per pass, so the dark render is held to
+     the rule the light one is.
+
+     A rejected target lands where a rejected markdown link lands. That renderer
+     demotes to `text (href)` -- the element stops linking and the target it
+     wanted stays visible instead of vanishing -- so this strips the linking
+     attributes and puts the same `label (href)` string in an SVG <title>. The
+     <a> itself is kept rather than unwrapped: mermaid hangs the node's own
+     `transform` on it, so removing the element moves the node. An <a> with no
+     href is not a state new to the diagram either -- it is exactly what
+     mermaid's own strict-mode handling of a javascript: click already emits. */
+  function sweepLinks(root){
+    Array.prototype.forEach.call(root.querySelectorAll("a"), function(a){
+      var rejected = null;
+      ["href", "xlink:href"].forEach(function(name){
+        if (!a.hasAttribute(name)) return;
+        var raw = a.getAttribute(name), h = normalizeHref(raw);
+        /* Write back the value that was VALIDATED, never the raw one.
+           setAttribute matches on qualified name, so an xlink:href keeps its
+           namespace instead of gaining a second, null-namespaced twin. */
+        if (safeHref(h)) { a.setAttribute(name, h); return; }
+        a.removeAttribute(name);
+        if (rejected === null) rejected = raw;
+      });
+      if (rejected === null) return;
+      a.removeAttribute("target");
+      var t = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      t.textContent = (a.textContent || "").trim() + " (" + rejected + ")";
+      a.insertBefore(t, a.firstChild);
+    });
+  }
+
   /* Unguarded from Task 9 until this fix: this was safe only while it was
      the IIFE's last statement. Task 10 appends code after it, so an
      uncaught throw in here -- e.g. marked.use() throwing internally, distinct
@@ -358,39 +445,11 @@ __BRIEF_B64__
          - markdown images          -> remote URLs fetch on load; shown as a chip
          - markdown links           -> javascript:/data: hrefs execute on click
        Raw-HTML escaping alone is not enough: an `![](https://host/px.gif)` in a
-       brief still beacons the reader's IP and open-time to that host. */
-    /* Scheme-based, not prefix-based. A prefix allowlist that admits "./x" but
-       not the equally common bare "BLOCKS.md" silently demotes valid links, and
-       an allowlist is the wrong shape for the question anyway: what matters is
-       whether a scheme is present and dangerous. Control characters and
-       whitespace are stripped first — "java&#9;script:" is a live scheme. */
-    function decodeEntities(s){
-      /* A textarea decodes character references without executing anything.
-         Needed because "java&#9;script:" is not a control character at the
-         source level, but the browser decodes the entity to a tab and then
-         strips it, reconstituting a live javascript: scheme. */
-      var t = document.createElement("textarea");
-      t.innerHTML = String(s || "");
-      return t.value;
-    }
-    function normalizeHref(raw){
-      // Backslashes are normalised to "/" BEFORE the check. For special schemes
-      // (file: among them) the WHATWG URL parser treats "\" as "/", so "/\host"
-      // is an equivalent spelling of "//host" and reaches the same remote host.
-      // The renderer below embeds THIS normalized value, not the raw input --
-      // validating one string and embedding a different one is how a check
-      // and its embed can silently drift apart.
-      return decodeEntities(raw).replace(/[\u0000-\u0020\u007f]/g, "").replace(/\\/g, "/");
-    }
-    function safeHref(h){
-      // "//host/x" has no scheme but is not document-relative: it resolves to
-      // file://host/x, which on Windows is a UNC path and a click attempts an
-      // SMB connection to an attacker-chosen host.
-      if (/^\/\//.test(h)) return false;
-      var m = h.match(/^([a-z][a-z0-9+.\-]*):/i);
-      if (!m) return true;                              // no scheme: relative or fragment
-      return /^(https?|mailto)$/i.test(m[1]);
-    }
+       brief still beacons the reader's IP and open-time to that host.
+       A FOURTH hatch is not closed here because it is not a markdown one: a
+       mermaid `click ... href` directive builds an anchor inside the emitted
+       SVG. sweepLinks above holds it to this same allowlist, and the allowlist
+       is declared above rather than in here so both surfaces share one copy. */
     function rendererUnavailable(detail){
       banner("Renderer unavailable", detail);
     }
@@ -1019,8 +1078,13 @@ __BRIEF_B64__
             var slot = document.createElement("div");
             slot.className = pass.cls;
             slot.innerHTML = res.svg;
-            /* Before the slot joins the document, so the two passes can never
-               both hold an element called "arrowhead". See nsIds. */
+            /* Both before the slot joins the document. sweepLinks first, so no
+               anchor a `click ... href` directive built is ever live in the
+               page -- it is the one route to an anchor that never passes the
+               markdown renderer, and mermaid's strict mode does not stop
+               `//host`, `/\host` or `\\host\share`. Then nsIds, so the two
+               passes can never both hold an element called "arrowhead". */
+            sweepLinks(slot);
             nsIds(slot, id);
             box.appendChild(slot);
           })
