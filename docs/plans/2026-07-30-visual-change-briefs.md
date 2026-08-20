@@ -731,10 +731,19 @@ chk "plan-state pending" \
   "$(grep -c 'data-plan-state="pending"' "$W/g1.html")" "1"
 
 # Provenance: identical bytes give identical digests, changed bytes differ.
-"$S/render.sh" "$W/s.md" -o "$W/d1.html" >/dev/null
+# Same BASENAME from two directories. data-sources is
+# "$(basename "$SPEC")@$(digest "$SPEC")", so two different filenames make the
+# attribute differ whatever the digest does -- with digest() blunted to a
+# constant, s.md@fixedhash against s2.md@fixedhash still reads "different" and
+# still PASSes, and the one assertion whose purpose is catching a dead digest
+# cannot see one. Identical basenames leave the digest as the only term that
+# can move.
+mkdir -p "$W/prov/a" "$W/prov/b"
+printf '# Spec Title\n\n## Design\n\nbody\n'         > "$W/prov/a/same.md"
+printf '# Spec Title\n\n## Design\n\nbody changed\n' > "$W/prov/b/same.md"
+"$S/render.sh" "$W/prov/a/same.md" -o "$W/d1.html" >/dev/null
+"$S/render.sh" "$W/prov/b/same.md" -o "$W/d2.html" >/dev/null
 d1=$(grep -o 'data-sources="[^"]*"' "$W/d1.html")
-printf '# Spec Title\n\n## Design\n\nbody changed\n' > "$W/s2.md"
-"$S/render.sh" "$W/s2.md" -o "$W/d2.html" >/dev/null
 d2=$(grep -o 'data-sources="[^"]*"' "$W/d2.html")
 [ "$d1" != "$d2" ] && ok "provenance changes with source bytes" \
   || no "provenance changes with source bytes" "identical"

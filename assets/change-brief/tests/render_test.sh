@@ -319,9 +319,19 @@ chk "plan-state pending" \
 # equal empty extractions read as "identical" (a real failure, but for the
 # wrong reason) or, worse, let one built and one unbuilt fixture read as
 # "different" (a false pass).
-"$S/render.sh" "$W/s.md" -o "$W/d1.html" >/dev/null
-printf '# Spec Title\n\n## Design\n\nbody changed\n' > "$W/s2.md"
-"$S/render.sh" "$W/s2.md" -o "$W/d2.html" >/dev/null
+# Same BASENAME from two directories, not s.md and s2.md. data-sources is
+# "$(basename "$SPEC")@$(digest "$SPEC")", so two different filenames make the
+# attribute differ whatever the digest does. Measured with digest() blunted to
+# `printf "fixedhash"`: the old fixtures gave s.md@fixedhash against
+# s2.md@fixedhash -- still "different", still PASS, with provenance certifying
+# nothing. The one assertion whose whole purpose is catching a dead digest
+# could not see one. Identical basenames leave the digest as the only term
+# that can move.
+mkdir -p "$W/prov/a" "$W/prov/b"
+printf '# Spec Title\n\n## Design\n\nbody\n'         > "$W/prov/a/same.md"
+printf '# Spec Title\n\n## Design\n\nbody changed\n' > "$W/prov/b/same.md"
+"$S/render.sh" "$W/prov/a/same.md" -o "$W/d1.html" >/dev/null
+"$S/render.sh" "$W/prov/b/same.md" -o "$W/d2.html" >/dev/null
 if [ ! -s "$W/d1.html" ] || [ ! -s "$W/d2.html" ]; then
   no "provenance changes with source bytes" "fixture not built: d1.html or d2.html missing/empty"
 else
@@ -395,6 +405,22 @@ printf '\n\n\n# Blank Then Title\n\nbody\n' > "$W/blanktitle.md"
 "$S/render.sh" "$W/blanktitle.md" -o "$W/blanktitle.html" >/dev/null
 chk "title survives leading blank lines before the H1" \
   "$(title_of "$W/blanktitle.html")" "Blank Then Title"
+
+# Up to three leading spaces is still an ATX heading in CommonMark, and it is
+# the ONLY input on which the two readers of "which line is the H1" can
+# disagree while every other case stays clean. The three cases above -- fence,
+# front matter, leading blanks -- all pass with the title regex narrowed from
+# `^ {0,3}# ` to `^# `. Measured on this fixture with only that narrowing
+# applied: the payload is byte-identical because strip_h1 still removes the
+# line, while the title collapses to "ind", the basename. A masthead silently
+# reverting to the filename on a document whose H1 was found and removed is
+# exactly the drift this section is named for, and nothing here could see it.
+printf '   # Indented Title\n\nbody here\n' > "$W/indtitle.md"
+"$S/render.sh" "$W/indtitle.md" -o "$W/indtitle.html" >/dev/null
+chk "title reads an H1 indented up to three spaces, as strip_h1 does" \
+  "$(title_of "$W/indtitle.html")" "Indented Title"
+chk "  and that H1 is removed from the body, not left behind" \
+  "$(payload "$W/indtitle.html" | grep -c '^   # Indented Title$')" "0"
 
 echo "== template placeholders =="
 for ph in __TITLE_B64__ __SOURCES_B64__ __GENERATED__ __DIAG_B64__ __PLANSTATE__ __VENDOR_JS__ __BRIEF_B64__; do
