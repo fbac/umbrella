@@ -71,10 +71,16 @@ This structure informs the task decomposition. Each task should produce self-con
 ---
 ```
 
+Keep the `# … Implementation Plan` H1. `render.sh` strips it when building the
+change brief so the merged document has exactly one H1 — this is documented so
+nobody "fixes" the H1 away.
+
 ## Task Structure
 
 ````markdown
 ### Task N: [Component Name]  — `static-verifiable` | `browser-walk-only`
+
+**Depends on:** Task A, Task B   <!-- or `none` -->
 
 **Files:**
 - Create: `exact/path/to/file.py`
@@ -142,17 +148,34 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 **4. Walk-tag coverage (Umbrella):** Is every task tagged `static-verifiable` or `browser-walk-only`? Does every spec walk-only requirement map to a `browser-walk-only` task? Is the `## Browser-Walk Inventory` present with one plain-prose case per walk-only item?
 
+**5. Dependency declarations (Umbrella):** Does every task carry a `**Depends on:**` line as the first paragraph under its heading? Does every referenced task exist? Is the dependency set acyclic?
+
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
 ## Adversarial Plan Review (Umbrella gate)
 
 Dispatch a fresh subagent to adversarially review the plan using `skills/writing-plans/plan-document-reviewer-prompt.md`. Iterate until it scores **>90** before execution handoff.
 
+## Render the Change Brief
+
+Once the plan review passes, re-render the brief with both sources:
+
+```bash
+"$BRIEF_DIR/render.sh" docs/specs/<name>.md docs/plans/<name>.md -o docs/briefs/<name>.html
+```
+
+`$BRIEF_DIR` is `<announced skill base directory>/../../assets/change-brief`.
+`${CLAUDE_PLUGIN_ROOT}` is not set in the Bash tool environment. Verify
+`[ -x "$BRIEF_DIR/render.sh" ]` first — **if the assets cannot be found, report
+it and continue on the markdown. A missing renderer must never block the gate.**
+
+Executing subagents read `docs/plans/*.md`. They never read `docs/briefs/*.html`.
+
 ## Execution Handoff
 
 After saving the plan, offer execution choice:
 
-**"Plan complete and saved to `docs/plans/<filename>.md`. Two execution options:**
+**"Plan complete and saved to `docs/plans/<filename>.md`, rendered to `docs/briefs/<filename>.html`. Two execution options:**
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
 

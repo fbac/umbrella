@@ -1446,6 +1446,17 @@ grep -q 'never block the review gate' "$BS" && ok "degradation rule present" \
   || no "degradation rule present" "missing"
 grep -q 'never read' "$BS" && ok "executing subagents rule present" \
   || no "executing subagents rule present" "missing"
+
+echo "== writing-plans skill hooks =="
+WP="$R/skills/writing-plans/SKILL.md"
+grep -q '\*\*Depends on:\*\*' "$WP" && ok "task template carries Depends on" \
+  || no "task template carries Depends on" "missing"
+grep -q 'render.sh' "$WP" && ok "renders the brief after the plan gate" \
+  || no "renders the brief after the plan gate" "missing"
+grep -q 'never read' "$WP" && ok "executing subagents rule present" \
+  || no "executing subagents rule present" "missing"
+grep -q 'referenced task exist' "$WP" && ok "self-review checks dangling refs" \
+  || no "self-review checks dangling refs" "missing"
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
