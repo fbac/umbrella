@@ -29,10 +29,11 @@ You MUST create a task for each of these items and complete them in order:
 4. **Completeness pass** — build the persona × surface × affordance matrix (see below). This is where you ask "did we even ask the right questions?" — BEFORE proposing approaches.
 5. **Propose 2-3 approaches** — with trade-offs and your recommendation
 6. **Present design** — in sections scaled to their complexity, get user approval after each section
-7. **Write design doc** — save to `docs/specs/YYYY-MM-DD-<topic>-design.md` and commit
+7. **Write design doc** — save to `docs/specs/YYYY-MM-DD-<topic>-design.md` and commit. Author it with the block catalog at `$BRIEF_DIR/BLOCKS.md`, unnumbered `##` sections, including only the blocks that apply
 8. **Spec self-review** — inline check for placeholders, contradictions, ambiguity, scope, AND the completeness/composition checks (see below)
 9. **Adversarial spec review** — dispatch a fresh subagent reviewer (see `skills/brainstorming/spec-document-reviewer-prompt.md`); iterate the spec until it scores **>90** before proceeding
-10. **User reviews written spec** — ask user to review the spec file before proceeding
+9b. **Render the change brief** — `"$BRIEF_DIR/render.sh" <spec> -o docs/briefs/<name>.html` with no plan argument. If the assets cannot be found, say so and continue on the markdown — a missing renderer must never block the review gate
+10. **User reviews the rendered brief** — point the user at `docs/briefs/<name>.html` and state plainly that altering the feature is free at this point
 11. **Transition to implementation** — invoke `umbrella:writing-plans` to create the implementation plan
 
 ## Process Flow
@@ -50,6 +51,7 @@ digraph brainstorming {
     "Write design doc" [shape=box];
     "Spec self-review\n(+ composition checks)" [shape=box];
     "Adversarial review >90?" [shape=diamond];
+    "Render brief" [shape=box];
     "User reviews spec?" [shape=diamond];
     "Invoke umbrella:writing-plans" [shape=doublecircle];
 
@@ -66,7 +68,8 @@ digraph brainstorming {
     "Write design doc" -> "Spec self-review\n(+ composition checks)";
     "Spec self-review\n(+ composition checks)" -> "Adversarial review >90?";
     "Adversarial review >90?" -> "Write design doc" [label="no, iterate"];
-    "Adversarial review >90?" -> "User reviews spec?" [label="yes"];
+    "Adversarial review >90?" -> "Render brief" [label="yes"];
+    "Render brief" -> "User reviews spec?";
     "User reviews spec?" -> "Write design doc" [label="changes requested"];
     "User reviews spec?" -> "Invoke umbrella:writing-plans" [label="approved"];
 }
@@ -158,7 +161,7 @@ Dispatch a fresh subagent to adversarially review the spec using `skills/brainst
 **User Review Gate:**
 After the review gate passes, ask the user to review the written spec before proceeding:
 
-> "Spec written and committed to `<path>`. Please review it and let me know if you want to make any changes before we start writing out the implementation plan."
+> "Spec written and committed to `<path>`, and rendered to `<brief path>`. Open the brief in your browser and review it — the index on the left navigates sections, and diagrams are rendered inline. **Changing the shape of this feature costs nothing right now**; after the plan is written the same change costs a plan rewrite. Let me know if you want changes before we start the implementation plan."
 
 Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
 
@@ -166,6 +169,21 @@ Wait for the user's response. If they request changes, make them and re-run the 
 
 - Invoke `umbrella:writing-plans` to create a detailed implementation plan
 - Do NOT invoke any other skill. `umbrella:writing-plans` is the next step.
+
+## Change Brief Assets
+
+`$BRIEF_DIR` is `<the skill base directory announced when this skill loads>/../../assets/change-brief`.
+`${CLAUDE_PLUGIN_ROOT}` is **not** set in the Bash tool environment — it is
+substituted by the harness for `hooks.json` only.
+
+Verify `[ -x "$BRIEF_DIR/render.sh" ]` before use. **If the assets cannot be
+found, report it and proceed with markdown review. A missing renderer must
+never block the review gate.**
+
+`docs/briefs/` is derived output and belongs in the consumer project's
+`.gitignore`. If it is absent, add it.
+
+Executing subagents read `docs/plans/*.md`. They never read `docs/briefs/*.html`.
 
 ## Key Principles
 

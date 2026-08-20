@@ -1435,6 +1435,17 @@ chk "  documents the Depends on placement rule and its none case" \
 # three table rows and a badge row, none of which define anything.
 chk "  defines both walk tags and the Inventory case rule" \
   "$(grep -cE '^- `static-verifiable` — ' "$B" 2>/dev/null)$(grep -cE '^- `browser-walk-only` — ' "$B" 2>/dev/null)$(grep -cF 'at least one case per `browser-walk-only` task' "$B" 2>/dev/null)" "111"
+
+echo "== brainstorming skill hooks =="
+BS="$R/skills/brainstorming/SKILL.md"
+grep -q 'BLOCKS.md' "$BS" && ok "step 7 points at the block catalog" \
+  || no "step 7 points at the block catalog" "missing"
+grep -q '9b' "$BS" && ok "step 9b renders the brief" || no "step 9b renders the brief" "missing"
+chk "render brief node in the dot graph" "$(grep -c 'Render brief' "$BS")" "3"
+grep -q 'never block the review gate' "$BS" && ok "degradation rule present" \
+  || no "degradation rule present" "missing"
+grep -q 'never read' "$BS" && ok "executing subagents rule present" \
+  || no "executing subagents rule present" "missing"
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
