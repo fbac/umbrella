@@ -1457,6 +1457,18 @@ grep -q 'never read' "$WP" && ok "executing subagents rule present" \
   || no "executing subagents rule present" "missing"
 grep -q 'referenced task exist' "$WP" && ok "self-review checks dangling refs" \
   || no "self-review checks dangling refs" "missing"
+
+echo "== reviewer prompts =="
+SP="$R/skills/brainstorming/spec-document-reviewer-prompt.md"
+PP="$R/skills/writing-plans/plan-document-reviewer-prompt.md"
+grep -q 'Score:' "$SP" && ok "spec prompt has a Score field" || no "spec prompt has a Score field" "missing"
+grep -q 'Score:' "$PP" && ok "plan prompt has a Score field" || no "plan prompt has a Score field" "missing"
+grep -q 'blocks 1-23' "$SP" && ok "spec prompt scoped to blocks 1-23" \
+  || no "spec prompt scoped to blocks 1-23" "missing"
+chk "spec prompt does not grade plan blocks" "$(grep -c 'must not penalize' "$SP")" "1"
+grep -q 'acyclic' "$PP" && ok "plan prompt checks acyclicity" || no "plan prompt checks acyclicity" "missing"
+grep -q 'Browser-Walk Inventory' "$PP" && ok "plan prompt checks the inventory" \
+  || no "plan prompt checks the inventory" "missing"
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

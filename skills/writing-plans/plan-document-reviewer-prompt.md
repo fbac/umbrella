@@ -23,6 +23,19 @@ Task tool (general-purpose):
     | Spec Alignment | Plan covers spec requirements, no major scope creep |
     | Task Decomposition | Tasks have clear boundaries, steps are actionable |
     | Buildability | Could an engineer follow this plan without getting stuck? |
+    | Plan blocks | Blocks 24-27 from `assets/change-brief/BLOCKS.md` — see below |
+
+    ## Plan Block Coverage
+
+    Grade against **plan blocks 24-27 only**:
+
+    - **24** — every task has steps with `- [ ]` checkboxes.
+    - **25** — every task carries a `static-verifiable` or `browser-walk-only` tag.
+    - **26** — every task carries a `**Depends on:**` line as the first paragraph
+      under its heading. Every referenced task must exist, and the dependency set
+      must be acyclic. Report dangling references and cycles by task number.
+    - **27** — a `## Browser-Walk Inventory` exists with at least one numbered,
+      plain-prose case per `browser-walk-only` task.
 
     ## Calibration
 
@@ -36,6 +49,8 @@ Task tool (general-purpose):
     ## Output Format
 
     ## Plan Review
+
+    **Score:** <integer 0-100>
 
     **Status:** Approved | Issues Found
 

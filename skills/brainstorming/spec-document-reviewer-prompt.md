@@ -23,6 +23,18 @@ Task tool (general-purpose):
     | Clarity | Requirements ambiguous enough to cause someone to build the wrong thing |
     | Scope | Focused enough for a single plan — not covering multiple independent subsystems |
     | YAGNI | Unrequested features, over-engineering |
+    | Block coverage | Spec blocks 1-23 from `assets/change-brief/BLOCKS.md` — see below |
+
+    ## Block Coverage
+
+    Grade against **spec blocks 1-23 only**. Penalize a missing always-present
+    block (1-9). Penalize a change that touches infrastructure with no block 20,
+    introduces types with no block 16, alters persisted schema with no block 17,
+    adds a called interface with no block 18, or introduces states with no
+    block 19.
+
+    You must not penalize the absence of plan blocks 24-27. A spec at the first
+    gate cannot contain them.
 
     ## Calibration
 
@@ -36,6 +48,8 @@ Task tool (general-purpose):
     ## Output Format
 
     ## Spec Review
+
+    **Score:** <integer 0-100>
 
     **Status:** Approved | Issues Found
 
