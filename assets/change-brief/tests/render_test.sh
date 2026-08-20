@@ -1440,19 +1440,41 @@ echo "== brainstorming skill hooks =="
 BS="$R/skills/brainstorming/SKILL.md"
 grep -q 'BLOCKS.md' "$BS" && ok "step 7 points at the block catalog" \
   || no "step 7 points at the block catalog" "missing"
-grep -q '9b' "$BS" && ok "step 9b renders the brief" || no "step 9b renders the brief" "missing"
-chk "render brief node in the dot graph" "$(grep -c 'Render brief' "$BS")" "3"
-grep -q 'never block the review gate' "$BS" && ok "degradation rule present" \
-  || no "degradation rule present" "missing"
+# `grep -q '9b'` matched the bare list marker: item 9b with its render command
+# replaced by the words "nothing here" still reported 337 passed, 0 failed, and
+# the render is the half the label promises. Marker at line start, plus the
+# command it must carry.
+chk "step 9b renders the brief" \
+  "$(grep -cE '^9b\. \*\*Render the change brief\*\* — ' "$BS" 2>/dev/null)$(grep -cF '"$BRIEF_DIR/render.sh" <spec> -o docs/briefs/<name>.html' "$BS" 2>/dev/null)" "11"
+# `grep -c 'Render brief'` counted 3 anywhere in the file: the node declaration
+# and both edges deleted and three prose mentions appended still totalled 3, so
+# the graph could be gutted green. One term per graph line, the declaration
+# carrying its 4-space graph indent.
+chk "render brief node in the dot graph" \
+  "$(grep -cF '    "Render brief" [shape=box];' "$BS" 2>/dev/null)$(grep -cF '"Adversarial review >90?" -> "Render brief" [label="yes"];' "$BS" 2>/dev/null)$(grep -cF '"Render brief" -> "User reviews spec?";' "$BS" 2>/dev/null)" "111"
+# Two independent carriers, and `grep -q` was satisfied by either alone: the
+# whole 12-line `## Change Brief Assets` section deleted stayed green on item
+# 9b, and item 9b deleted stayed green on the section. One term per carrier, so
+# losing one reads 10 or 01 instead of a pass.
+chk "degradation rule present" \
+  "$(grep -cF 'a missing renderer must never block the review gate' "$BS" 2>/dev/null)$(grep -cF 'never block the review gate.**' "$BS" 2>/dev/null)" "11"
 grep -q 'never read' "$BS" && ok "executing subagents rule present" \
   || no "executing subagents rule present" "missing"
 
 echo "== writing-plans skill hooks =="
 WP="$R/skills/writing-plans/SKILL.md"
-grep -q '\*\*Depends on:\*\*' "$WP" && ok "task template carries Depends on" \
-  || no "task template carries Depends on" "missing"
-grep -q 'render.sh' "$WP" && ok "renders the brief after the plan gate" \
-  || no "renders the brief after the plan gate" "missing"
+# `grep -q '**Depends on:**'` was carried by Self-Review check 5, which this
+# same task added: the declaration deleted from the task template still
+# reported 337 passed, 0 failed. Scoped to the template section the label
+# names, so check 5 can no longer stand in for it.
+chk "task template carries Depends on" \
+  "$(sed -n '/^## Task Structure$/,/^## No Placeholders$/p' "$WP" 2>/dev/null | grep -cF '**Depends on:** Task A, Task B   <!-- or `none` -->')" "1"
+# `grep -q 'render.sh'` was carried by the H1 note this same task added
+# ("`render.sh` strips it when building the change brief"): the entire 14-line
+# `## Render the Change Brief` section deleted, command and all, still green.
+# Section heading at line start, plus the command; the same deletion now reads 01.
+chk "renders the brief after the plan gate" \
+  "$(grep -cE '^## Render the Change Brief$' "$WP" 2>/dev/null)$(grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md docs/plans/<name>.md -o docs/briefs/<name>.html' "$WP" 2>/dev/null)" "11"
 grep -q 'never read' "$WP" && ok "executing subagents rule present" \
   || no "executing subagents rule present" "missing"
 grep -q 'referenced task exist' "$WP" && ok "self-review checks dangling refs" \
@@ -1461,10 +1483,20 @@ grep -q 'referenced task exist' "$WP" && ok "self-review checks dangling refs" \
 echo "== reviewer prompts =="
 SP="$R/skills/brainstorming/spec-document-reviewer-prompt.md"
 PP="$R/skills/writing-plans/plan-document-reviewer-prompt.md"
-grep -q 'Score:' "$SP" && ok "spec prompt has a Score field" || no "spec prompt has a Score field" "missing"
-grep -q 'Score:' "$PP" && ok "plan prompt has a Score field" || no "plan prompt has a Score field" "missing"
-grep -q 'blocks 1-23' "$SP" && ok "spec prompt scoped to blocks 1-23" \
-  || no "spec prompt scoped to blocks 1-23" "missing"
+# `grep -q 'Score:'` matched any prose containing the word: deleting the field
+# and writing "Do not report a Score: this reviewer does not grade numerically"
+# into Calibration -- the opposite instruction -- still reported green. Both now
+# read the field as it must appear, inside the block that defines the output.
+chk "spec prompt has a Score field" \
+  "$(sed -n '/^    ## Output Format$/,/^```$/p' "$SP" 2>/dev/null | grep -cE '^    \*\*Score:\*\* <integer 0-100>$')" "1"
+chk "plan prompt has a Score field" \
+  "$(sed -n '/^    ## Output Format$/,/^```$/p' "$PP" 2>/dev/null | grep -cE '^    \*\*Score:\*\* <integer 0-100>$')" "1"
+# `grep -q 'blocks 1-23'` was carried by the What to Check table row: the whole
+# 10-line `## Block Coverage` section deleted, every grading instruction with
+# it, still green on a row that only points at "see below". Anchored on the
+# section heading and the sentence that does the scoping.
+chk "spec prompt scoped to blocks 1-23" \
+  "$(grep -cE '^    ## Block Coverage$' "$SP" 2>/dev/null)$(grep -cF 'Grade against **spec blocks 1-23 only**' "$SP" 2>/dev/null)" "11"
 chk "spec prompt does not grade plan blocks" "$(grep -c 'must not penalize' "$SP")" "1"
 grep -q 'acyclic' "$PP" && ok "plan prompt checks acyclicity" || no "plan prompt checks acyclicity" "missing"
 grep -q 'Browser-Walk Inventory' "$PP" && ok "plan prompt checks the inventory" \
