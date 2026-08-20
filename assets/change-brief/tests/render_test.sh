@@ -1356,12 +1356,12 @@ V="$S/tests/browser/verify.mjs"
 # pinned, disabling an assertion block AND lowering the constant to match
 # reported 27 passed, 0 failed, exit 0, with nothing anywhere going red.
 #
-# 40 call sites against a 38-assertion suite is not a discrepancy: the canary
+# 42 call sites against a 40-assertion suite is not a discrepancy: the canary
 # pinned below calls chk twice on purpose and restores the counters, so the two
 # numbers are meant to differ by exactly two. Adding or removing a real
 # assertion moves both, and this line is where they are held together.
 chk "verify.mjs still carries its whole assertion inventory, and rechecks it at runtime" \
-  "$(grep -c '^ *chk(' "$V")/$(grep -cF 'const EXPECTED = 38;' "$V")$(grep -cF 'pass + fail !== EXPECTED' "$V")" "40/11"
+  "$(grep -c '^ *chk(' "$V")/$(grep -cF 'const EXPECTED = 40;' "$V")$(grep -cF 'pass + fail !== EXPECTED' "$V")" "42/11"
 # Task 13's two bypasses, kept as two checks for the same reason the fixture
 # pins above keep them apart: they are independent, and the themeCSS one
 # outlived the round that closed the htmlLabels one.

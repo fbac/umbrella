@@ -9,7 +9,7 @@
 // read as a pass in any wrapper that only looks at the status.
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +31,7 @@ process.on('exit', () => rmSync(W, { recursive: true, force: true }));
 // Measured: `// 4. Inertness.\n{` -> `if (false) {` reported 26 passed, 0
 // failed, exit 0. Keep this in step with render_test.sh's inventory pin; both
 // move together, and so does the plan's Step 4 number.
-const EXPECTED = 38;
+const EXPECTED = 40;
 
 let pass = 0, fail = 0;
 const ok = m => { console.log('  PASS  ' + m); pass++; };
@@ -56,7 +56,7 @@ const chk = (m, got, want) =>
 // chk stubbed to always FAIL is caught by the same block.
 //
 // The counters are restored afterwards, so the canary costs nothing against
-// EXPECTED: the suite is 38 assertions while the file holds 40 chk( call sites.
+// EXPECTED: the suite is 40 assertions while the file holds 42 chk( call sites.
 // render_test.sh pins both numbers, and they are meant to differ by exactly the
 // two calls below.
 {
@@ -181,6 +181,31 @@ async function probe(file) {
         return !t || !/^H[23]$/.test(t.tagName);
       })
       .map(a => a.dataset.target),
+    // Mermaid emits arrowhead, crosshead, sequencenumber and filled-head -- and
+    // clock, database, computer -- verbatim, so a page holding a LIGHT and a
+    // DARK render of one diagram holds two elements sharing each of those ids.
+    // url(#arrowhead) resolves to the first match in document order, always the
+    // light pass, which in dark theme sits inside a display:none subtree, and a
+    // marker that is not rendered paints nothing. Measured in Chrome before
+    // template.html's nsIds() existed: the dark render lost every arrowhead and
+    // every autonumber bubble outright while light kept both. Stated as "no id
+    // appears twice" rather than as a list of names, so it covers whatever ids a
+    // future bundle adds. The root <svg>'s own id is unique per render already,
+    // which is exactly why nsIds() can and must leave that one alone.
+    dupIds: (() => {
+      const seen = new Set(), dup = new Set();
+      for (const el of document.querySelectorAll('[id]')) {
+        if (seen.has(el.id)) dup.add(el.id); else seen.add(el.id);
+      }
+      return [...dup].sort();
+    })(),
+    // The anti-vacuity half. dupIds is [] on any page that never held two
+    // renders of a marker-bearing diagram, so the markers are counted beside it.
+    // Matched namespaced OR bare -- `mmd-3-arrowhead` and `arrowhead` both --
+    // so the count is identical with nsIds() present and with it deleted, and a
+    // failure moves the duplicate list alone instead of both terms at once.
+    markerIds: [...document.querySelectorAll('[id]')]
+      .filter(e => /(^|-)(arrowhead|crosshead|sequencenumber|filled-head)$/.test(e.id)).length,
     chips: document.querySelectorAll('.img-chip').length,
     pwn: window.__PWN === undefined ? null : window.__PWN,
     dagCaption: (document.querySelector('.dag-caption') || {}).textContent || null,
@@ -199,6 +224,51 @@ async function probe(file) {
   }));
   await ctx.close();
   return { ...r, pageerrors: errs, offsite: reqs };
+}
+
+// probe()'s context takes the default viewport, which is wide enough that the
+// property below cannot fail in it, so the narrow case needs a context of its
+// own. Created probe()'s way rather than a second way: same newContext, same
+// wait on the page's own completion marker rather than a sleep, same close. It
+// carries none of probe()'s listeners because it asserts none of probe()'s
+// properties -- inertness and page errors are covered on the fixtures above,
+// and this page exists only to be measured at a width.
+async function narrow(file, width) {
+  const ctx = await browser.newContext({ viewport: { width, height: 800 } });
+  const p = await ctx.newPage();
+  await p.goto('file://' + file);
+  await p.waitForSelector('[data-diagrams]', { timeout: 30000 });
+  const r = await p.evaluate(() => {
+    const de = document.documentElement, over = [];
+    // Top AND bottom: the measured defect was present at every scroll offset,
+    // and a sticky or absolutely positioned box can overflow at the bottom of a
+    // page that measures clean at the top. The BODY is what is asserted on --
+    // pre, table and .mermaid-block each own an overflow-x of their own on
+    // purpose, so a check written against descendants would forbid the fixture.
+    for (const y of [0, 1e6]) {
+      window.scrollTo(0, y);
+      if (de.scrollWidth > de.clientWidth) over.push([window.scrollY, de.scrollWidth, de.clientWidth]);
+    }
+    // Vacuity guard, and it has to be measured rather than counted: word-wrap
+    // already breaks a line at a hyphen, so a 90-character hyphenated token
+    // wraps unaided and proves nothing. Every run with no break opportunity in
+    // it is laid out on a canvas in the font its own code span resolved to.
+    // Unless one of them is wider than the viewport the page cannot overflow,
+    // and then the measurement above passes whether the fix is there or not.
+    // pre and table are skipped for the reason they are exempt in the CSS.
+    const cv = document.createElement('canvas').getContext('2d');
+    let widest = 0;
+    for (const c of document.querySelectorAll('#content code')) {
+      if (c.closest('pre, table')) continue;
+      cv.font = getComputedStyle(c).font;
+      for (const tok of c.textContent.match(/[^\s-]+/g) || []) {
+        widest = Math.max(widest, cv.measureText(tok).width);
+      }
+    }
+    return { overflows: over, tokenWiderThanViewport: widest > de.clientWidth };
+  });
+  await ctx.close();
+  return r;
 }
 
 // 1. Gate 1: spec only.
@@ -311,6 +381,62 @@ async function probe(file) {
   const r = await probe(f);
   chk('hostile: no banners', r.banners, []);
   chk('hostile: no page errors', r.pageerrors, []);
+}
+
+// 7. The two defects a real browser walk found in template.html. Neither was
+// visible to the shell suite, to this harness as it stood, or to jsdom -- one
+// is a layout measurement and the other is which of two same-named elements a
+// url(#) reference resolves to, and nothing that does not lay the page out can
+// see either. Both were fixed with no assertion holding them, which is the only
+// reason this block exists.
+{
+  // plan-region.md already carries a sequenceDiagram with autonumber, which is
+  // what reaches arrowhead and sequencenumber -- the two markers the walk
+  // watched vanish. Paired with plan.md so the page also holds the generated
+  // flowchart, whose edge-path ids duplicate too: measured with nsIds() gone,
+  // the pair reports 9 duplicated ids against the sequence fence's 7 alone.
+  const f = render(join(FIX, 'plan-region.md'), join(FIX, 'plan.md'), join(W, 'themes.html'));
+  const r = await probe(f);
+  chk('themes: no id is shared between the light and the dark render',
+      { duplicated: r.dupIds, markersOnPage: r.markerIds },
+      { duplicated: [], markersOnPage: 8 });
+
+  // Written into W, not added to tests/fixtures/: Task 16 pins fixture contents
+  // by assertion, and a new fixture would drag that whole block along for a file
+  // one assertion reads. It has to be its own page because no fixture holds an
+  // unbreakable token: measured, the widest unbreakable run in any fixture's
+  // prose lays out at 82px against a 480px viewport, so on any of them the
+  // assertion below passes with the .doc rule deleted. The two literals here
+  // are the ones the walk traced its 587px document width to, verbatim.
+  // The table and the fenced block are here for the other half of the same rule:
+  // both are allowed to scroll inside their own box, and neither may move the
+  // body while doing it.
+  const md = join(W, 'narrow.md');
+  writeFileSync(md, [
+    '# Narrow Viewport Probe',
+    '',
+    '## Why this change',
+    '',
+    'The cache path `~/.claude/plugins/cache/umbrella/umbrella/<version>/skills/<name>/SKILL.md`',
+    'and the secure list `["secure","securityLevel","startOnLoad","maxTextSize","maxEdges"]`',
+    'are the two literals the walk traced a 587px document width to at 480px.',
+    '',
+    '## Design',
+    '',
+    '| Setting | Value |',
+    '| --- | --- |',
+    '| secure | `["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels"]` |',
+    '',
+    '```text',
+    'a fenced line far wider than any 480px viewport, which has to scroll inside its own pre and never move the page body',
+    '```',
+    ''
+  ].join('\n'));
+  const nf = render(md, null, join(W, 'narrow.html'));
+  const n = await narrow(nf, 480);
+  chk('narrow: an unbreakable token in prose never scrolls the body at 480px',
+      { overflowedAt: n.overflows, tokenWiderThanViewport: n.tokenWiderThanViewport },
+      { overflowedAt: [], tokenWiderThanViewport: true });
 }
 
 await browser.close();
