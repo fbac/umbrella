@@ -10,6 +10,25 @@ ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s :: %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 chk(){ if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "expected [$3] got [$2]"; fi }
 
+# Self-test the three helpers before trusting anything they say. Every assertion
+# below is worth exactly what chk is worth, and `chk(){ ok "$1"; }` is a one-line
+# edit that leaves every pinned selector and every count in this file intact:
+# measured, so neutered, this suite reported `shell: 339 passed, 0 failed`,
+# exit 0, with nothing anywhere going red. tests/browser/verify.mjs has carried
+# this canary since it was written and calls it the worst failure that harness
+# has; this is the larger, gating suite and it had none.
+#
+# Run in command substitution on purpose: the subshell's counters are discarded,
+# so the canary costs nothing against the totals and needs no restore. Both
+# directions are exercised, which also catches a chk stubbed to always fail, a
+# neutered ok() and a neutered no(). It reports by exiting, not through no(),
+# because "the reporting path can be trusted" is the very thing being
+# established, so the check may not lean on any part of it.
+canary_pass=$(chk "canary" "x" "x")
+canary_fail=$(chk "canary" "x" "y")
+case "$canary_pass" in *"PASS"*) ;; *) echo "harness self-test failed: a matched pair did not report PASS [$canary_pass]" >&2; exit 3 ;; esac
+case "$canary_fail" in *"FAIL"*) ;; *) echo "harness self-test failed: a mismatched pair did not report FAIL [$canary_fail]" >&2; exit 3 ;; esac
+
 echo "== repo scaffold =="
 grep -q '^docs/briefs/$' "$R/.gitignore" && ok "gitignore excludes docs/briefs/" \
   || no "gitignore excludes docs/briefs/" "missing"
@@ -326,9 +345,13 @@ mkdir -p "$W/specdir" "$W/plandir"
 printf 'minimal placeholder-free stand-in template\n' > "$W/notpl.html"
 
 "$S/render.sh" "$W/specdir" -o "$W/dirspec_out.html" >/dev/null 2>"$W/err.txt"
-chk "directory as spec exits 1" "$?" "1"
-grep -q 'cannot read spec' "$W/err.txt" && ok "  names the spec as the problem" \
-  || no "  names the spec as the problem" "$(cat "$W/err.txt")"
+# Exit code AND diagnostic as one pin. Alone, "exits 1" passed for the wrong
+# reason: measured with the -f guard removed from render.sh, the run still
+# exited 1 -- not because the guard fired but because grep died further down on
+# "Is a directory" -- and only the sibling assertion went red. A check may not
+# claim a guard fired when all it saw was some later failure.
+chk "directory as spec is refused by name, not by a later accident" \
+  "$?/$(grep -c 'cannot read spec' "$W/err.txt")" "1/1"
 [ -f "$W/dirspec_out.html" ] && no "  directory-as-spec leaves no output file" "file exists" \
   || ok "  directory-as-spec leaves no output file"
 
@@ -1496,7 +1519,7 @@ V="$S/tests/browser/verify.mjs"
 # numbers are meant to differ by exactly two. Adding or removing a real
 # assertion moves both, and this line is where they are held together.
 chk "verify.mjs still carries its whole assertion inventory, and rechecks it at runtime" \
-  "$(grep -c '^ *chk(' "$V")/$(grep -cF 'const EXPECTED = 40;' "$V")$(grep -cF 'pass + fail !== EXPECTED' "$V")" "42/11"
+  "$(grep -c '^ *chk(' "$V")/$(grep -cF 'const EXPECTED = 44;' "$V")$(grep -cF 'pass + fail !== EXPECTED' "$V")" "46/11"
 # Task 13's two bypasses, kept as two checks for the same reason the fixture
 # pins above keep them apart: they are independent, and the themeCSS one
 # outlived the round that closed the htmlLabels one.
@@ -1731,6 +1754,82 @@ done
 grep -q 'acyclic' "$PP" && ok "plan prompt checks acyclicity" || no "plan prompt checks acyclicity" "missing"
 grep -q 'Browser-Walk Inventory' "$PP" && ok "plan prompt checks the inventory" \
   || no "plan prompt checks the inventory" "missing"
+echo "== render.sh refuses to destroy its own inputs =="
+# Measured before the -ef guard existed: `render.sh s.md -o s.md` exited 0
+# having replaced a 24-byte spec with 3445956 bytes of its own HTML. Markdown
+# is the source of truth for every agent in this system and nothing reads the
+# brief back, so that is unrecoverable loss reported as success.
+printf '# Spec Title\n\n## Design\n\nbody\n' > "$W/ow.md"
+printf '# Plan\n\n### Task 1: A\n\n**Depends on:** none\n' > "$W/ow-plan.md"
+ow_before=$(wc -c < "$W/ow.md" | tr -d ' ')
+"$S/render.sh" "$W/ow.md" -o "$W/ow.md" >/dev/null 2>"$W/ow.err"
+chk "-o at the spec is refused, and the spec is untouched" \
+  "$?/$(wc -c < "$W/ow.md" | tr -d ' ')/$(grep -c 'would overwrite the source' "$W/ow.err")" \
+  "1/$ow_before/1"
+plan_before=$(wc -c < "$W/ow-plan.md" | tr -d ' ')
+"$S/render.sh" "$W/ow.md" "$W/ow-plan.md" -o "$W/ow-plan.md" >/dev/null 2>/dev/null
+chk "-o at the plan is refused too, not just the spec" \
+  "$?/$(wc -c < "$W/ow-plan.md" | tr -d ' ')" "1/$plan_before"
+# -ef compares device and inode, so a second spelling of the same file is the
+# same file. A string compare would pass this one straight through.
+ln -sf "$W/ow.md" "$W/ow-link.md"
+"$S/render.sh" "$W/ow.md" -o "$W/ow-link.md" >/dev/null 2>/dev/null
+chk "a symlink to the spec is the same file, and is refused" \
+  "$?/$(wc -c < "$W/ow.md" | tr -d ' ')" "1/$ow_before"
+"$S/render.sh" "$W/ow.md" -o "$W/ow-ok.html" >/dev/null 2>/dev/null
+chk "  and an ordinary render is unaffected" "$?/$([ -s "$W/ow-ok.html" ] && echo 1 || echo 0)" "0/1"
+
+echo "== render.sh leaves no half-written brief on any failing path =="
+printf '# Spec Title\n\n## Design\n\n%s\n' "$(head -c 4000 /dev/zero | tr '\0' 'x')" > "$W/big.md"
+"$S/render.sh" "$W/big.md" -o "$W/measure.html" >/dev/null 2>/dev/null
+# Both the block size and the cap are measured, never assumed. `ulimit -f`
+# counts in 1024-byte blocks on this bash and 512 elsewhere, and a cap computed
+# from the wrong unit lands ABOVE the output, where the render simply succeeds
+# and the assertion passes having tested nothing -- which is exactly what
+# happened when this block first hardcoded its cap.
+ulim_unit=$( ( ulimit -f 1 2>/dev/null || exit 0
+               dd if=/dev/zero of="$W/unit.bin" bs=1 count=4096 2>/dev/null
+               wc -c < "$W/unit.bin" | tr -d ' ' ) )
+out_bytes=$(wc -c < "$W/measure.html" | tr -d ' ')
+# 2KB under the finished brief: above every temporary file render.sh builds --
+# the largest, step2.html, is the brief minus its payload, ~6KB smaller -- and
+# below $OUT, so the only write that can fail is the last one. That write was
+# the whole uncovered path: cleanup() removed $OUT only when die() had set
+# FAILED, and a `set -e` abort inside that final sed is not a die(). Measured
+# pre-fix: 3448320 bytes left behind, which Chrome opens as a completely blank
+# page -- 0 body children, no banner, cut mid-bundle with no closing </script>.
+rm -f "$W/trunc.html"
+if [ -z "$ulim_unit" ] || ! [ "$ulim_unit" -ge 1 ] 2>/dev/null; then
+  no "a failed final write leaves no file behind" "could not measure the ulimit -f block size"
+else
+  cap=$(( (out_bytes - 2048 + ulim_unit - 1) / ulim_unit ))
+  ( ulimit -f "$cap" 2>/dev/null || exit 99
+    "$S/render.sh" "$W/big.md" -o "$W/trunc.html" >/dev/null 2>/dev/null )
+  trunc_rc=$?
+  if [ "$trunc_rc" -eq 99 ]; then
+    no "a failed final write leaves no file behind" "ulimit -f unavailable on this shell"
+  elif [ "$trunc_rc" -eq 0 ]; then
+    # The render succeeded, so the cap never bit and nothing was tested. A pass
+    # here would be the purest form of the defect this suite keeps finding.
+    no "a failed final write leaves no file behind" \
+      "cap $cap blocks x $ulim_unit B did not stop a $out_bytes B render"
+  else
+    chk "a failed final write leaves no file behind" \
+      "$([ -e "$W/trunc.html" ] && echo "left $(wc -c < "$W/trunc.html" | tr -d ' ') bytes" || echo none)" "none"
+  fi
+fi
+
+echo "== template JS: every payload decode is contained =="
+# data-diag was the one bare decodeB64 left at IIFE top level, and the earliest
+# to run. Measured by corrupting each data-* attribute in turn on one real
+# brief: a bad data-title or data-sources costs only the masthead, while a bad
+# data-diag gave toc 0, diagrams 0, badges 0, progress 0, an uncaught atob
+# throw, and data-diagrams never set -- which also hangs any harness waiting on
+# that attribute. Both halves pinned: the guarded call present, and no bare one
+# anywhere. The second term is what keeps a future fourth site from slipping in.
+chk "the diagnostics payload decodes through safeDecode, and no decode is left bare" \
+  "$(grep -cF 'safeDecode(document.body.dataset.diag' "$S/template.html")$(grep -cE 'decodeB64\(document\.body\.dataset\.(diag|title|sources)' "$S/template.html")" "10"
+
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
