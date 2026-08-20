@@ -89,7 +89,30 @@ BEGIN { fchar = ""; flen = 0; prevblank = 1; incode = 0; incomment = 0; held = "
     flush()
     ch = substr(m, 1, 1); len = length(m)
     if (fchar == "") { fchar = ch; flen = len; prevblank = 0; incode = 0; emit(line); next }
-    if (ch == fchar && len >= flen && line ~ /^ {0,3}(`+|~+)[ \t\r]*$/) {
+    # Closing fence, transcribed from the vendored marked 12.0.2, whose fences
+    # rule ends with:  (?: {0,3}\1[~`]* *(?=\n|$)|$)
+    # -- the opener's own run (\1), then any further ` or ~, then SPACES only.
+    # marker_of has already checked the run's character and length, so all that
+    # is left is that nothing but fence characters and spaces follows.
+    #
+    # A tab is not a space, and both known divergences were this one class
+    # being wrong in each direction. Measured, end to end, before the fix:
+    # a closer ending in a tab closed the fence here and not in marked, so the
+    # diagnostic (which is made of "is a fence still open?") never fired and
+    # every later section rendered inside a <pre> with exit 0 and an empty
+    # stderr. A closer written "```~~~" closes for marked and did not here, so
+    # a dangling line-start "<!--" after it was taken for code, left unescaped,
+    # and swallowed the tail under a warning that named the fence instead.
+    #
+    # \r still reaches this line even though render.sh rejects CRLF sources:
+    # that guard is `grep -q $'\r$'`, which only sees a \r at END of line, and
+    # the suite also runs this file directly on CRLF fixtures. It is admitted
+    # as a line terminator, not as trailing whitespace -- marked's lexer
+    # rewrites every \r, lone or paired, to a newline before any rule runs, so
+    # marked's line ENDS at the first \r and whatever follows is a separate
+    # line that cannot keep this one from closing. Hence (\r.*)?, which leaves
+    # "```\t\rx" open (marked sees "```\t") while closing "```\r".
+    if (ch == fchar && len >= flen && line ~ /^ {0,3}[`~]+ *(\r.*)?$/) {
       fchar = ""; flen = 0; prevblank = 0; emit(line); next
     }
     prevblank = 0; emit(line); next

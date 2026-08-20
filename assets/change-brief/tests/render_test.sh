@@ -62,6 +62,69 @@ chk "unterminated fence reported" \
 chk "clean document produces no diagnostics" \
   "$(awk -v mode=diag -f "$SC" "$W/fenced.md" | wc -l | tr -d ' ')" "0"
 
+echo "== scan.awk: fence closers, aligned to marked's own rule =="
+# Read out of vendor/marked.min.js, the fences rule ends:
+#   (?: {0,3}\1[~`]* *(?=\n|$)|$)
+# -- the opener's own run, then any number of further ` or ~, then SPACES
+# only. scan.awk accepted [ \t\r]* and a homogeneous run, so it disagreed with
+# the parser the reader actually sees in BOTH directions, and each direction
+# cost content: scan.awk decides whether to warn, marked decides what is seen.
+
+printf 'a\n\n```bash\necho hi\n```\t\n\nafter\n' > "$W/fencetab.md"
+# A tab is invisible in an editor, in a diff, and in this file. Written with
+# spaces by accident, every assertion below would still pass while testing
+# nothing -- so the byte is asserted before anything leans on it.
+chk "the tab-closer fixture really carries a tab" \
+  "$(sed -n '5p' "$W/fencetab.md" | cat -t)" '```^I'
+# Measured before the fix, end to end on a real plan: a closing ``` followed by
+# a tab left dangle=0, no diagnostic and an empty stderr, while marked kept
+# consuming -- the following tasks and the Browser-Walk Inventory lost their
+# headings, their index entries and the dependency graph, and their text was
+# shown inside a <pre> as if it were a code sample. The sentinel that backs the
+# truncation check sits before the damage, so nothing else here could see it.
+chk "a closer followed by a tab does not close the fence, as in marked" \
+  "$(awk -v mode=diag -f "$SC" "$W/fencetab.md" | grep -c 'Unterminated code fence')" "1"
+
+printf 'a\n\n```bash\necho hi\n``` \n\nafter\n' > "$W/fencespace.md"
+# The other half of marked's rule, and the reason the repair ends " *$" rather
+# than "$". Green before the fix too; it goes red on the over-narrow repair
+# ^ {0,3}[`~]+$, which fabricates an unterminated fence on a trailing space.
+# The escape-mode line count is carried alongside so an unbuilt fixture cannot
+# read as "no diagnostics" -- awk on a missing file prints nothing either.
+chk "a closer followed by spaces still closes" \
+  "$(awk -v mode=escape -f "$SC" "$W/fencespace.md" | wc -l | tr -d ' ')/$(awk -v mode=diag -f "$SC" "$W/fencespace.md" | wc -l | tr -d ' ')" "7/0"
+
+printf 'a\n\n```bash\necho hi\n```~~~\n\n<!-- never closed\n\n## Risks\n' > "$W/fencemixed.md"
+# marked closes on the opener's run followed by ANY further ` or ~. scan.awk
+# demanded a homogeneous run, so it held the fence open, read the rest of the
+# document as code, and never saw the dangling comment: measured dangle=0 with
+# a warning naming a cause that was not the cause, while the comment swallowed
+# ## Risks out of both the DOM and the index.
+chk "a closer with a mixed ~ suffix closes, so a later dangling comment is seen" \
+  "$(awk -v mode=dangle -f "$SC" "$W/fencemixed.md")" "1"
+chk "  and the diagnostic names the comment, not the fence" \
+  "$(awk -v mode=diag -f "$SC" "$W/fencemixed.md" | grep -c 'Unterminated HTML comment')/$(awk -v mode=diag -f "$SC" "$W/fencemixed.md" | grep -c 'Unterminated code fence')" "1/0"
+
+printf 'a\n\n```bash\necho hi\n~~~\n\nafter\n' > "$W/fencecross.md"
+# That suffix is legal only AFTER the opener's own run -- marked backreferences
+# it -- so "~~~" cannot close a ``` fence. Green before the fix; it goes red
+# the moment the widened character class is used without marker_of's
+# `ch == fchar` still in front of it.
+chk "a ~~~ line does not close a \`\`\` fence" \
+  "$(awk -v mode=diag -f "$SC" "$W/fencecross.md" | grep -c 'Unterminated code fence')" "1"
+
+printf 'a\r\n\r\n```bash\r\necho hi\r\n```\r\n\r\nafter\r\n' > "$W/fencecrlf.md"
+# \r is admitted as a line TERMINATOR, not as trailing whitespace. render.sh
+# rejects CRLF sources, but its guard is `grep -q $'\r$'` -- only a \r at end
+# of line -- and this file is also run directly on CRLF fixtures here. marked
+# rewrites every \r, lone or paired, to a newline before any rule runs, so its
+# line ends at the first \r and what follows cannot keep this one from closing.
+# Green before the fix, which admitted \r as whitespace and was right by luck;
+# red on the repair written " *$" alone, which fabricates an unterminated fence
+# on every CRLF document.
+chk "a CRLF closer still closes" \
+  "$(awk -v mode=escape -f "$SC" "$W/fencecrlf.md" | wc -l | tr -d ' ')/$(awk -v mode=diag -f "$SC" "$W/fencecrlf.md" | wc -l | tr -d ' ')" "7/0"
+
 echo "== scan.awk: CRLF fix, and the accepted list-lazy-setext gap =="
 
 printf 'Heading\r\n=======\r\n\r\nbody\r\n' > "$W/crlf.md"
@@ -366,6 +429,39 @@ grep -q 'Unterminated code fence' "$W/warn.txt" && ok "unterminated fence warns 
   || no "unterminated fence warns on stderr" "$(cat "$W/warn.txt")"
 "$S/render.sh" "$W/s.md" -o "$W/clean.html" 2>"$W/warn2.txt" >/dev/null
 chk "clean document warns nothing" "$(wc -c < "$W/warn2.txt" | tr -d ' ')" "0"
+
+# The fence-closer divergence, end to end through render.sh, on the two
+# properties the scan-level checks above cannot see: what the author is told,
+# and what reaches the payload the page parses. Both are asserted POSITIVELY --
+# an absence check on payload() passes on an unbuilt fixture, whose poison
+# block carries neither string either.
+printf '# T\n\n## D\n\n```bash\necho hi\n```\t\n\n## Later\n' > "$W/tabwarn.md"
+"$S/render.sh" "$W/tabwarn.md" -o "$W/tabwarn.html" 2>"$W/tabwarn.err" >/dev/null
+# Measured before the fix: exit 0, zero bytes of stderr, and ## Later inside a
+# <pre>. The silence was the whole defect -- the render looked clean.
+chk "a tab-closed fence warns on stderr instead of passing silently" \
+  "$(grep -c 'Unterminated code fence' "$W/tabwarn.err")" "1"
+
+printf '# T\n\n## D\n\n```bash\necho hi\n```\t\n\n<!-- fence content for marked\n\nmore\n' > "$W/tabesc.md"
+"$S/render.sh" "$W/tabesc.md" -o "$W/tabesc.html" >/dev/null 2>&1
+# Content, not exit status. With the fence wrongly closed here, that line read
+# as a dangling opener, escaping ran, and the reader's code block displayed the
+# literal text "&lt;!--" -- bytes the author never wrote. Confirmed in a
+# browser in the <pre> itself, before and after.
+chk "a comment marked reads as fence content stays verbatim in the payload" \
+  "$(payload "$W/tabesc.html" | grep -c '^<!--')" "1"
+
+printf '# T\n\n## D\n\n```bash\necho hi\n```~~~\n\n<!-- never closed\n\n## Risks\n\nbody\n' > "$W/mixesc.md"
+"$S/render.sh" "$W/mixesc.md" -o "$W/mixesc.html" 2>"$W/mixesc.err" >/dev/null
+# The other direction, end to end: before the fix this warned about a code
+# fence that marked had in fact closed, while the real cause went unescaped and
+# took ## Risks out of the DOM and the index. Browser-confirmed both ways: with
+# the escape applied, Risks is an <h2> with an index entry and the sentinel
+# survives; without it, the tail is one text node and the page banners.
+chk "a mixed-suffix closer plus a dangling comment warns about the comment" \
+  "$(grep -c 'Unterminated HTML comment' "$W/mixesc.err")/$(grep -c 'Unterminated code fence' "$W/mixesc.err")" "1/0"
+chk "  and the opener is escaped, so the parse cannot swallow the tail" \
+  "$(payload "$W/mixesc.html" | grep -c '^&lt;!--')" "1"
 
 echo "== title derivation agrees with strip_h1 on which line is the H1 =="
 # Guarded like payload() above: a missing or empty output file must fail every
