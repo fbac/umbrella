@@ -1406,6 +1406,19 @@ chk "verify.mjs's inertness probes still name their selectors" \
 # reports 5 failures, the neutered one reports none.
 chk "verify.mjs's integrity probes still name their selectors" \
   "$(grep -cF "querySelectorAll('.integrity-banner')" "$V")$(grep -cF "querySelectorAll('#content h1')" "$V")$(grep -cF "p.on('pageerror'" "$V")$(grep -cF 'errs.push(e.message)' "$V")" "1111"
+
+echo "== BLOCKS.md =="
+B="$S/BLOCKS.md"
+[ -r "$B" ] && ok "BLOCKS.md present" || no "BLOCKS.md present" "missing"
+for n in $(seq 1 27); do
+  if grep -qE "^\| $n \|" "$B" 2>/dev/null; then ok "block $n catalogued"
+  else no "block $n catalogued" "missing"; fi
+done
+chk "27 catalog rows" "$(grep -cE '^\| [0-9]+ \|' "$B" 2>/dev/null || echo 0)" "27"
+grep -q 'render.sh' "$B" 2>/dev/null && ok "  documents the render command" \
+  || no "  documents the render command" "missing"
+grep -q 'Depends on:' "$B" 2>/dev/null && ok "  documents the Depends on syntax" \
+  || no "  documents the Depends on syntax" "missing"
 echo
 echo "shell: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
