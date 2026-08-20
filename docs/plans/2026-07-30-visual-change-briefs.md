@@ -2394,6 +2394,71 @@ Append inside the IIFE, after the per-task progress section:
      that box's light render. */
   var PASSES = [{ theme:"default", cls:"d-light" }, { theme:"dark", cls:"d-dark" }];
 
+  /* Rewrite every id one pass emitted so it cannot collide with the other
+     pass's copy, then repoint every reference that names one.
+
+     Mermaid does not namespace the marker ids a sequenceDiagram emits —
+     arrowhead, crosshead, sequencenumber, filled-head — nor clock, database or
+     computer, so a page holding a light AND a dark render of one diagram holds
+     two elements sharing each of those ids. url(#arrowhead) resolves to the
+     FIRST match in document order, which is always the light pass, and in dark
+     theme that element sits inside a display:none subtree — a marker that is
+     not rendered paints nothing at all.
+
+     Observed in Chrome on a three-message sequenceDiagram before this ran, and
+     it is worse than the "wrong colour" walk case 11 predicted: the dark render
+     lost every arrowhead and every autonumber bubble outright while the light
+     render kept both. Namespacing per pass is the fix named there; reversing
+     the pass order is not, because print forces .d-light and would inherit the
+     same defect.
+
+     References live in attribute values as url(#id) and in href/xlink:href as
+     a bare #id, and mermaid's own emitted <style> can carry url(#id) too, so
+     all three are rewritten. Ids are renamed only after every reference has
+     been repointed — renaming first would leave the rewrite nothing to match. */
+  function nsIds(root, seed){
+    var owned = [], all0 = root.querySelectorAll("[id]"), map = {}, keys = [], i, j;
+    for (i = 0; i < all0.length; i++) {
+      /* The root <svg>'s own id is the one id that must NOT be rewritten:
+         mermaid scopes its emitted stylesheet as `#<svgId> .actor{...}`, a
+         plain CSS id selector rather than a url(#) reference, so renaming it
+         detaches every theme rule at once. Measured when this function did
+         rename it: the dark render came back with light actor boxes, no message
+         lines and stray black autonumber blobs — visibly worse than the
+         duplicate-id defect it was written to fix. It is already unique per
+         render, so it needs no help from here. */
+      if (all0[i].tagName.toLowerCase() === "svg" && all0[i].parentNode === root) continue;
+      owned.push(all0[i]);
+    }
+    for (i = 0; i < owned.length; i++) {
+      if (!owned[i].id || map[owned[i].id]) continue;
+      map[owned[i].id] = seed + "-" + owned[i].id;
+      keys.push(owned[i].id);
+    }
+    if (!keys.length) return;
+    var swap = function(v){
+      var out = v;
+      for (j = 0; j < keys.length; j++) out = out.split("url(#" + keys[j] + ")").join("url(#" + map[keys[j]] + ")");
+      return out;
+    };
+    var all = root.querySelectorAll("*");
+    for (i = 0; i < all.length; i++) {
+      var el = all[i];
+      for (var a = 0; a < el.attributes.length; a++) {
+        var at = el.attributes[a], v = at.value, out = swap(v);
+        if ((at.name === "href" || at.name === "xlink:href") && v.charAt(0) === "#" && map[v.slice(1)]) {
+          out = "#" + map[v.slice(1)];
+        }
+        if (out !== v) at.value = out;
+      }
+      if (el.tagName && el.tagName.toLowerCase() === "style") {
+        var t = swap(el.textContent);
+        if (t !== el.textContent) el.textContent = t;
+      }
+    }
+    for (i = 0; i < owned.length; i++) if (map[owned[i].id]) owned[i].id = map[owned[i].id];
+  }
+
   function renderBox(box){
     var src = box.dataset.src;
     return PASSES.reduce(function(chain, pass){
@@ -2443,6 +2508,9 @@ Append inside the IIFE, after the per-task progress section:
             var slot = document.createElement("div");
             slot.className = pass.cls;
             slot.innerHTML = res.svg;
+            /* Before the slot joins the document, so the two passes can never
+               both hold an element called "arrowhead". See nsIds. */
+            nsIds(slot, id);
             box.appendChild(slot);
           })
           .catch(function(err){
