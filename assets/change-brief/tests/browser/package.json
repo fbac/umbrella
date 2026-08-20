@@ -1,0 +1,9 @@
+{
+  "name": "change-brief-browser-tests",
+  "private": true,
+  "type": "module",
+  "description": "Optional headless smoke test for rendered change briefs. Without this manifest verify.mjs cannot resolve its import, and without \"type\": \"module\" node refuses to run its top-level import at all.",
+  "dependencies": {
+    "playwright-core": "^1.62.0"
+  }
+}

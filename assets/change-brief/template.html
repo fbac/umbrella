@@ -1,0 +1,1415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change Brief</title>
+<style>
+:root{
+  --bg:#fbfbfa; --bg-alt:#f3f3f1; --bg-code:#f0f0ee;
+  --fg:#1c1c1a; --fg-dim:#65655f; --fg-faint:#8f8f87;
+  --line:#e2e2dd; --line-strong:#c9c9c2;
+  --accent:#4f46e5; --accent-soft:#eeecfd;
+  --warn:#b45309; --warn-soft:#fdf3e3;
+  --danger:#b91c1c; --danger-soft:#fdeceb;
+  --ok:#15803d; --ok-soft:#e9f6ed;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+}
+:root[data-theme="dark"]{
+  --bg:#15151a; --bg-alt:#1d1d24; --bg-code:#20202a;
+  --fg:#e6e6ea; --fg-dim:#a0a0ad; --fg-faint:#75757f;
+  --line:#2b2b35; --line-strong:#3d3d4a;
+  --accent:#8b85f5; --accent-soft:#232135;
+  --warn:#f0a35e; --warn-soft:#2c2318;
+  --danger:#f08a84; --danger-soft:#2e1c1c;
+  --ok:#6ddc95; --ok-soft:#16281d;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--fg);
+  font-family:var(--sans); font-size:15.5px; line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent); text-decoration:none}
+a:hover{text-decoration:underline}
+
+.shell{display:flex; min-height:100vh}
+.sidebar{
+  width:290px; flex:0 0 290px; border-right:1px solid var(--line);
+  background:var(--bg-alt); position:sticky; top:0; height:100vh;
+  overflow-y:auto; padding:20px 0 40px;
+}
+.main{flex:1 1 auto; min-width:0; display:flex; justify-content:center; padding:0 32px 120px}
+/* A long unbreakable token in prose -- an inline `code` span holding a path or
+   a JSON array -- is the one thing that makes the page BODY scroll sideways at
+   480px, which walk case 3 forbids. Measured on the dogfood brief before this
+   line: document scrollWidth 587 against a 480 viewport, traced to
+   `["secure","securityLevel","startOnLoad","maxTextSize","maxEdges"]` and
+   `~/.claude/plugins/cache/umbrella/umbrella/<version>/skills/<name>`.
+   Deliberately on .doc and not on pre or table: those two own their horizontal
+   scroll on purpose, and `white-space:pre` gives this no wrapping opportunity
+   to act on anyway, so the fenced blocks keep scrolling inside their box. */
+.doc{width:100%; max-width:860px; overflow-wrap:anywhere}
+
+.masthead{border-bottom:1px solid var(--line); padding:34px 0 22px; margin-bottom:34px}
+.eyebrow{font-size:11px; letter-spacing:.11em; text-transform:uppercase; color:var(--fg-faint); font-weight:600; margin-bottom:10px}
+.masthead h1{font-size:33px; line-height:1.2; margin:0 0 16px; letter-spacing:-.02em}
+.stamps{display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:12px}
+.stamp{
+  display:inline-flex; align-items:center; gap:6px;
+  border:1px solid var(--line-strong); border-radius:999px;
+  padding:3px 11px; color:var(--fg-dim); font-family:var(--mono); font-size:11.5px;
+}
+
+.toc-head{display:flex; align-items:center; justify-content:space-between; padding:0 20px 14px; margin-bottom:6px; border-bottom:1px solid var(--line)}
+.toc-title{font-size:11px; letter-spacing:.11em; text-transform:uppercase; color:var(--fg-faint); font-weight:600}
+.theme-toggle{display:flex; gap:2px; background:var(--bg); border:1px solid var(--line-strong); border-radius:7px; padding:2px}
+.theme-toggle button{background:none; border:0; cursor:pointer; padding:3px 7px; border-radius:5px; color:var(--fg-dim); font-size:12px; line-height:1; font-family:var(--sans)}
+.theme-toggle button[aria-pressed="true"]{background:var(--accent-soft); color:var(--accent)}
+nav.toc{padding:10px 12px}
+nav.toc ul{list-style:none; margin:0; padding:0}
+.toc-group{margin-bottom:2px}
+.toc-l2{display:flex; align-items:flex-start; gap:4px}
+.chevron{background:none; border:0; cursor:pointer; color:var(--fg-faint); padding:5px 3px; line-height:1; font-size:10px; flex:0 0 auto; transition:transform .12s ease}
+.chevron[aria-expanded="false"]{transform:rotate(-90deg)}
+.toc-group.no-kids .chevron{visibility:hidden}
+nav.toc a{display:block; padding:5px 8px; border-radius:6px; color:var(--fg-dim); font-size:13.5px; line-height:1.4; flex:1 1 auto}
+nav.toc a:hover{background:var(--bg); color:var(--fg); text-decoration:none}
+nav.toc a.lvl2{font-weight:550; color:var(--fg)}
+nav.toc .kids{margin:0 0 4px 22px; border-left:1px solid var(--line); padding-left:6px}
+nav.toc .kids a{font-size:13px; padding:4px 8px}
+nav.toc a.active{background:var(--accent-soft); color:var(--accent); font-weight:600}
+nav.toc .kids[hidden]{display:none}
+
+.doc h2{font-size:25px; letter-spacing:-.015em; margin:52px 0 4px; padding-top:14px; border-top:1px solid var(--line); scroll-margin-top:20px}
+.doc h2:first-of-type{border-top:0; margin-top:0}
+.doc h3{font-size:18px; letter-spacing:-.01em; margin:34px 0 2px; scroll-margin-top:20px}
+.doc h4{font-size:15px; margin:24px 0 2px; color:var(--fg-dim)}
+.doc p{margin:12px 0}
+.doc ul,.doc ol{margin:12px 0; padding-left:24px}
+.doc li{margin:5px 0}
+.doc li::marker{color:var(--fg-faint)}
+.doc hr{border:0; border-top:1px solid var(--line); margin:44px 0}
+.doc strong{font-weight:640}
+
+code{font-family:var(--mono); font-size:.875em; background:var(--bg-code); padding:.13em .38em; border-radius:4px}
+pre{background:var(--bg-code); border:1px solid var(--line); border-radius:9px; padding:14px 16px; overflow-x:auto; margin:16px 0}
+pre code{background:none; padding:0; font-size:12.8px; line-height:1.6}
+
+table{border-collapse:collapse; width:100%; margin:18px 0; font-size:14px; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top}
+th{background:var(--bg-alt); font-weight:620; font-size:12.5px; letter-spacing:.02em}
+tbody tr:nth-child(even){background:var(--bg-alt)}
+blockquote{margin:16px 0; padding:2px 0 2px 16px; border-left:3px solid var(--line-strong); color:var(--fg-dim)}
+
+.callout{border-radius:9px; padding:13px 16px; margin:18px 0; border:1px solid; font-size:14.5px}
+.callout .callout-label{font-size:11px; letter-spacing:.09em; text-transform:uppercase; font-weight:700; margin-bottom:5px; display:block}
+.callout p:first-of-type{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+.callout.note{border-color:var(--accent); background:var(--accent-soft)}
+.callout.note .callout-label{color:var(--accent)}
+.callout.warning{border-color:var(--warn); background:var(--warn-soft)}
+.callout.warning .callout-label{color:var(--warn)}
+.callout.important{border-color:var(--danger); background:var(--danger-soft)}
+.callout.important .callout-label{color:var(--danger)}
+.callout.tip{border-color:var(--ok); background:var(--ok-soft)}
+.callout.tip .callout-label{color:var(--ok)}
+.callout.pending{border:1px dashed var(--accent); background:var(--accent-soft); padding:22px 24px; border-radius:11px}
+.callout.pending .callout-label{color:var(--accent); font-size:12px}
+
+.badge{display:inline-block; font-family:var(--mono); font-size:10.5px; font-weight:600; letter-spacing:.03em; padding:3px 8px; border-radius:5px; vertical-align:middle; margin-left:8px}
+.badge.static{background:var(--bg-code); color:var(--fg-dim); border:1px solid var(--line-strong)}
+.badge.walk{background:var(--warn-soft); color:var(--warn); border:1px solid var(--warn)}
+
+.doc li:has(> input[type=checkbox]){list-style:none; margin-left:-20px}
+input[type=checkbox]{accent-color:var(--accent); margin-right:7px; transform:translateY(1px)}
+li:has(> input[type=checkbox]:checked){color:var(--fg-faint)}
+li:has(> input[type=checkbox]:checked) strong{text-decoration:line-through; font-weight:500}
+.progress{display:inline-flex; align-items:center; gap:7px; font-family:var(--mono); font-size:11px; color:var(--fg-dim); margin-left:8px; vertical-align:middle}
+.progress .bar{width:52px; height:5px; border-radius:3px; background:var(--line); overflow:hidden}
+.progress .bar span{display:block; height:100%; background:var(--ok)}
+
+/* diagrams: both theme variants rendered up front, toggled by CSS.
+   No re-render on theme change, and print can select the light one synchronously. */
+.mermaid-block{margin:20px 0; padding:18px; border:1px solid var(--line); border-radius:9px; background:var(--bg-alt); overflow-x:auto; text-align:center}
+.mermaid-block svg{max-width:100%; height:auto}
+.d-dark{display:none}
+:root[data-theme="dark"] .d-light{display:none}
+:root[data-theme="dark"] .d-dark{display:block}
+.mermaid-error{margin:20px 0; border:1px solid var(--danger); border-radius:9px; background:var(--danger-soft); overflow:hidden}
+.mermaid-error .err-head{padding:9px 14px; font-size:12px; font-weight:700; color:var(--danger); letter-spacing:.04em; text-transform:uppercase; border-bottom:1px solid var(--danger)}
+.mermaid-error .err-msg{padding:10px 14px; font-family:var(--mono); font-size:12px; color:var(--danger); white-space:pre-wrap}
+.mermaid-error pre{margin:0; border:0; border-top:1px solid var(--danger); border-radius:0; background:transparent}
+.dag-caption{font-size:12px; color:var(--fg-faint); text-align:center; margin-top:-8px; font-family:var(--mono)}
+
+.integrity-banner{
+  border:1px solid var(--danger); background:var(--danger-soft); color:var(--danger);
+  border-radius:9px; padding:13px 16px; margin:0 0 24px; font-size:14px;
+}
+.integrity-banner strong{display:block; margin-bottom:4px; text-transform:uppercase; font-size:11px; letter-spacing:.09em}
+.img-chip{
+  display:inline-flex; align-items:baseline; gap:7px; font-family:var(--mono); font-size:12px;
+  border:1px dashed var(--line-strong); border-radius:6px; padding:3px 9px;
+  color:var(--fg-dim); background:var(--bg-alt); word-break:break-all;
+}
+.img-chip b{font-weight:600; color:var(--fg-faint); font-size:10.5px; letter-spacing:.05em; text-transform:uppercase}
+
+.sidebar-toggle{display:none; position:fixed; left:14px; top:14px; z-index:40; background:var(--bg-alt); border:1px solid var(--line-strong); border-radius:8px; padding:8px 12px; cursor:pointer; color:var(--fg); font-size:14px; line-height:1}
+@media (max-width:900px){
+  .sidebar{position:fixed; z-index:30; left:0; top:0; transform:translateX(-100%); transition:transform .18s ease; box-shadow:0 0 40px rgba(0,0,0,.18)}
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-toggle{display:block}
+  .main{padding:56px 18px 100px}
+}
+
+@media print{
+  /* must out-specify :root[data-theme="dark"] — media queries add no specificity */
+  :root, :root[data-theme="dark"]{
+    --bg:#fff; --bg-alt:#fff; --bg-code:#f5f5f5;
+    --fg:#000; --fg-dim:#333; --fg-faint:#555;
+    --line:#ccc; --line-strong:#999;
+    --accent:#3730a3; --accent-soft:#f4f3ff;
+    --warn:#8a4406; --warn-soft:#fdf6ec;
+    --danger:#991b1b; --danger-soft:#fdf0ef;
+    --ok:#14532d; --ok-soft:#f0f8f2;
+  }
+  /* SVG fills are baked at render time, so force the light variant */
+  :root[data-theme="dark"] .d-light, .d-light{display:block !important}
+  :root[data-theme="dark"] .d-dark, .d-dark{display:none !important}
+  .sidebar,.sidebar-toggle,.theme-toggle{display:none !important}
+  .main{padding:0}
+  .doc{max-width:none}
+  .mermaid-block,pre,table,.callout,.mermaid-error{break-inside:avoid; page-break-inside:avoid}
+  .doc h2,.doc h3{break-after:avoid; page-break-after:avoid}
+  a{color:#000; text-decoration:underline}
+}
+</style>
+<script>
+__VENDOR_JS__
+</script>
+</head>
+<body
+  data-title="__TITLE_B64__"
+  data-sources="__SOURCES_B64__"
+  data-generated="__GENERATED__"
+  data-diag="__DIAG_B64__"
+  data-plan-state="__PLANSTATE__"
+  data-brief="
+__BRIEF_B64__
+">
+
+<button class="sidebar-toggle" id="sbToggle" aria-label="Toggle index">☰</button>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="toc-head">
+      <span class="toc-title">Contents</span>
+      <div class="theme-toggle" role="group" aria-label="Theme">
+        <button data-theme-set="auto"  aria-pressed="true"  title="Follow system">A</button>
+        <button data-theme-set="light" aria-pressed="false" title="Light">☀</button>
+        <button data-theme-set="dark"  aria-pressed="false" title="Dark">☾</button>
+      </div>
+    </div>
+    <nav class="toc" id="toc"></nav>
+  </aside>
+
+  <main class="main">
+    <div class="doc">
+      <header class="masthead">
+        <div class="eyebrow">Change Brief</div>
+        <h1 id="briefTitle"></h1>
+        <div class="stamps" id="briefStamps"></div>
+      </header>
+      <div id="content"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  function esc(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+                    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+  function decodeB64(b64){
+    var clean = String(b64 || "").replace(/\s+/g, "");
+    if (!clean) return "";
+    var bin = atob(clean);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+
+  /* ---------- failure containment ----------
+     A rendered brief is opened by a persona with no repo and no context --
+     often a webmail preview pane, a DLP sandbox, or a storage-restricted
+     viewer. One bad attribute or a throwing localStorage must never blank
+     the rest of the page: a file that opens blank looks like a render that
+     succeeded, which is worse than no file at all.
+
+     Pattern for Tasks 9-14: wrap every new top-level section in guard()
+     with its own descriptive label, and route every base64 decode that
+     isn't already locally try/caught through safeDecode() instead of
+     calling decodeB64() directly. A throw in one section is reported to
+     the console and must never prevent later sections from running. */
+  function warn(label, e){
+    if (window.console && console.error) console.error("[change-brief] " + label + " failed:", e);
+  }
+  function guard(label, fn){
+    try { fn(); } catch (e) { warn(label, e); }
+  }
+  function safeDecode(b64, label){
+    try { return decodeB64(b64); }
+    catch (e) { warn(label, e); return ""; }
+  }
+
+  /* ---------- theme (pure CSS switch, no diagram re-render) ---------- */
+  var root = document.documentElement;
+  /* Deliberately NOT wrapped in guard(), assessed twice and recorded here so it
+     is not re-litigated a third time. This file already hard-requires
+     TextDecoder, dataset, atob and replaceWith, every one of them newer than
+     matchMedia, so the set of engines carrying those and not this one is empty
+     -- a guard here would be unreachable code paying a real cost in noise. The
+     genuine compatibility risk in this area is mq.addEventListener, which
+     Safari did not ship until 14, and that call IS guarded below. */
+  var mq = window.matchMedia("(prefers-color-scheme: dark)");
+  var THEMES = ["auto", "light", "dark"];
+  var pref = "auto";
+  guard("theme: read stored preference", function(){
+    var stored = localStorage.getItem("brief-theme");
+    if (THEMES.indexOf(stored) !== -1) pref = stored;
+  });
+  function resolved(){ return pref === "auto" ? (mq.matches ? "dark" : "light") : pref; }
+  function applyTheme(){
+    root.setAttribute("data-theme", resolved());
+    Array.prototype.forEach.call(document.querySelectorAll("[data-theme-set]"), function(b){
+      b.setAttribute("aria-pressed", String(b.dataset.themeSet === pref));
+    });
+  }
+  guard("theme: wire controls", function(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-theme-set]"), function(b){
+      b.addEventListener("click", function(){
+        pref = b.dataset.themeSet;
+        guard("theme: persist preference", function(){
+          localStorage.setItem("brief-theme", pref);
+        });
+        applyTheme();
+      });
+    });
+  });
+  guard("theme: attach system-preference listener", function(){
+    mq.addEventListener("change", function(){ if (pref === "auto") applyTheme(); });
+  });
+  guard("theme: apply initial", applyTheme);
+
+  /* ---------- masthead (base64 in, textContent out: no injection path) ---------- */
+  var title = safeDecode(document.body.dataset.title, "masthead: title decode") || "Change Brief";
+  guard("masthead: apply title", function(){
+    document.getElementById("briefTitle").textContent = title;
+    document.title = title + " — Change Brief";
+  });
+  guard("masthead: stamps", function(){
+    var stamps = document.getElementById("briefStamps");
+    [ "generated " + (document.body.dataset.generated || "unknown"),
+      safeDecode(document.body.dataset.sources, "masthead: sources decode") ]
+      .filter(Boolean)
+      .forEach(function(t){
+        var s = document.createElement("span");
+        s.className = "stamp";
+        s.textContent = t;
+        stamps.appendChild(s);
+      });
+  });
+
+  /* ---------- payload ---------- */
+  var md;
+  try { md = decodeB64(document.body.dataset.brief); }
+  catch (e) { warn("payload decode", e); md = "## Payload decode failed\n\n`" + String(e) + "`"; }
+
+  var content = document.getElementById("content");
+
+  function banner(head, msg){
+    var b = document.createElement("div");
+    b.className = "integrity-banner";
+    var s = document.createElement("strong"); s.textContent = head;
+    b.appendChild(s);
+    b.appendChild(document.createTextNode(msg));
+    content.parentNode.insertBefore(b, content);
+  }
+
+  /* ---------- link policy: one allowlist, two surfaces ---------- */
+  /* At IIFE scope, not inside the inertness guard below, because markdown
+     links are not the only thing on this page that produces an anchor. A
+     mermaid `click N href "..."` directive puts one straight into the emitted
+     SVG, and that anchor never goes near a markdown renderer. Measured on real
+     render.sh output before sweepLinks existed: the strict security level the
+     renderer sets below does strip javascript:, data: and `click ... call`,
+     and it passes `//host`, `/\host` and `\\host\share` through verbatim.
+     Three such directives produced SIX live anchors, three in the light render
+     and three in the dark one, every one of them resolving to
+     file://evil.example.invalid/share; clicking one in either render took
+     location.href off the brief to chrome-error://chromewebdata/. On Windows
+     that target is an SMB authentication attempt to a host of the payload's
+     choosing. None of it fires on LOAD, which is exactly why every other probe
+     on the page reads clean while it is wide open.
+
+     Hoisted rather than restated beside the diagram renderer. Two copies of a
+     rule are two rules, and this file has been bitten once already by a check
+     and its embed drifting apart -- see normalizeHref below. */
+  /* Scheme-based, not prefix-based. A prefix allowlist that admits "./x" but
+     not the equally common bare "BLOCKS.md" silently demotes valid links, and
+     an allowlist is the wrong shape for the question anyway: what matters is
+     whether a scheme is present and dangerous. Control characters and
+     whitespace are stripped first — "java&#9;script:" is a live scheme. */
+  function decodeEntities(s){
+    /* A textarea decodes character references without executing anything.
+       Needed because "java&#9;script:" is not a control character at the
+       source level, but the browser decodes the entity to a tab and then
+       strips it, reconstituting a live javascript: scheme. */
+    var t = document.createElement("textarea");
+    t.innerHTML = String(s || "");
+    return t.value;
+  }
+  function normalizeHref(raw){
+    // Backslashes are normalised to "/" BEFORE the check. For special schemes
+    // (file: among them) the WHATWG URL parser treats "\" as "/", so "/\host"
+    // is an equivalent spelling of "//host" and reaches the same remote host.
+    // Both renderers below embed THIS normalized value, not the raw input --
+    // validating one string and embedding a different one is how a check
+    // and its embed can silently drift apart.
+    return decodeEntities(raw).replace(/[\u0000-\u0020\u007f]/g, "").replace(/\\/g, "/");
+  }
+  function safeHref(h){
+    // "//host/x" has no scheme but is not document-relative: it resolves to
+    // file://host/x, which on Windows is a UNC path and a click attempts an
+    // SMB connection to an attacker-chosen host.
+    if (/^\/\//.test(h)) return false;
+    var m = h.match(/^([a-z][a-z0-9+.\-]*):/i);
+    if (!m) return true;                              // no scheme: relative or fragment
+    return /^(https?|mailto)$/i.test(m[1]);
+  }
+
+  /* The same allowlist, applied to a rendered diagram. Both attribute
+     spellings are swept: mermaid's dagre path writes xlink:href and its
+     state/flowchart renderers write href, and a sweep that knows only one of
+     them leaves the other live. Called per pass, so the dark render is held to
+     the rule the light one is.
+
+     A rejected target lands where a rejected markdown link lands. That renderer
+     demotes to `text (href)` -- the element stops linking and the target it
+     wanted stays visible instead of vanishing -- so this strips the linking
+     attributes and puts the same `label (href)` string in an SVG <title>. The
+     <a> itself is kept rather than unwrapped: mermaid hangs the node's own
+     `transform` on it, so removing the element moves the node. An <a> with no
+     href is not a state new to the diagram either -- it is exactly what
+     mermaid's own strict-mode handling of a javascript: click already emits. */
+  function sweepLinks(root){
+    Array.prototype.forEach.call(root.querySelectorAll("a"), function(a){
+      var rejected = null;
+      ["href", "xlink:href"].forEach(function(name){
+        if (!a.hasAttribute(name)) return;
+        var raw = a.getAttribute(name), h = normalizeHref(raw);
+        /* Write back the value that was VALIDATED, never the raw one.
+           setAttribute matches on qualified name, so an xlink:href keeps its
+           namespace instead of gaining a second, null-namespaced twin. */
+        if (safeHref(h)) { a.setAttribute(name, h); return; }
+        a.removeAttribute(name);
+        if (rejected === null) rejected = raw;
+      });
+      if (rejected === null) return;
+      a.removeAttribute("target");
+      var t = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      t.textContent = (a.textContent || "").trim() + " (" + rejected + ")";
+      a.insertBefore(t, a.firstChild);
+    });
+  }
+
+  /* Unguarded from Task 9 until this fix: this was safe only while it was
+     the IIFE's last statement. Task 10 appends code after it, so an
+     uncaught throw in here -- e.g. marked.use() throwing internally, distinct
+     from marked.use being absent, which the availability check below already
+     catches -- would silently kill everything appended after it and leave the
+     page blank with no banner at all. Wrapped per the containment pattern
+     documented above: guard() the section, and additionally route the
+     marked-specific failure through the same renderer-unavailable banner the
+     missing-function case already shows below, since both are the same
+     underlying condition from the reader's point of view. */
+  guard("inertness: render payload", function(){
+    /* The document must be inert. Three separate escape hatches exist and all
+       three are closed here:
+         - raw HTML in the payload  -> escaped, not executed
+         - markdown images          -> remote URLs fetch on load; shown as a chip
+         - markdown links           -> javascript:/data: hrefs execute on click
+       Raw-HTML escaping alone is not enough: an `![](https://host/px.gif)` in a
+       brief still beacons the reader's IP and open-time to that host.
+       A FOURTH hatch is not closed here because it is not a markdown one: a
+       mermaid `click ... href` directive builds an anchor inside the emitted
+       SVG. sweepLinks above holds it to this same allowlist, and the allowlist
+       is declared above rather than in here so both surfaces share one copy. */
+    function rendererUnavailable(detail){
+      banner("Renderer unavailable", detail);
+    }
+    if (typeof marked === "undefined" || typeof marked.use !== "function") {
+      rendererUnavailable("marked.use is missing, so payload HTML could not be neutralised. Refusing to render.");
+      return;
+    }
+    try {
+      marked.use({ renderer: {
+        html: function(token){
+          var raw = (token && typeof token === "object") ? (token.raw || token.text || "") : token;
+          return esc(raw);
+        },
+        image: function(token){
+          var href = (token && typeof token === "object") ? token.href : arguments[0];
+          var text = (token && typeof token === "object") ? (token.text || "") : (arguments[2] || "");
+          if (/^data:image\//i.test(href || "")) {
+            return '<img src="' + esc(href) + '" alt="' + esc(text) + '">';
+          }
+          return '<span class="img-chip"><b>image</b>' + esc(text || "untitled") +
+                 ' — ' + esc(href || "") + '</span>';
+        },
+        link: function(token){
+          var href = (token && typeof token === "object") ? token.href : arguments[0];
+          var text = (token && typeof token === "object") ? (token.text || "") : (arguments[2] || "");
+          var h = normalizeHref(href || "");
+          if (!safeHref(h)) return esc(text) + " (" + esc(href) + ")";
+          return '<a href="' + esc(h) + '" rel="noopener noreferrer">' + esc(text) + "</a>";
+        }
+      } });
+
+      content.innerHTML = marked.parse(md, { gfm:true, breaks:false });
+    } catch (e) {
+      warn("inertness: render payload", e);
+      rendererUnavailable("marked.use threw while neutralising payload HTML, so rendering was aborted. Refusing to render.");
+    }
+  });
+
+  /* Structural integrity, asserted against the DOM the reader actually sees.
+     A source-side heading count cannot work: it requires a second CommonMark
+     implementation, and every divergence between the two is either a false
+     alarm or silent loss. render.sh always appends a sentinel-marked Plan
+     heading, so its absence proves content was lost — by an unterminated
+     comment, an unterminated fence, an HTML block, a front-matter misparse, or
+     any cause nobody has thought of yet. */
+  var PLAN_MARK = "\u2060";
+  var marked_h2s = Array.prototype.filter.call(content.querySelectorAll("h2"), function(h){
+    return h.textContent.indexOf(PLAN_MARK) !== -1;
+  });
+  var planH2 = marked_h2s.length === 1 ? marked_h2s[0] : null;
+
+  if (planH2) {
+    planH2.textContent = planH2.textContent.replace(PLAN_MARK, "");
+  } else {
+    banner("Content lost during rendering",
+      "The Plan section this brief always ends with did not survive parsing, so " +
+      "an unknown amount of content is missing. Do not review from this page — " +
+      "check the markdown source.");
+  }
+
+  /* Warnings render.sh detected before parsing. Suppressed when the structural
+     check passed: the scanner is approximate by design and fabricates
+     "unterminated fence" on a backtick info string containing a backtick. A
+     reader-facing banner that cries wolf on a correct brief disarms the
+     backstop. The stderr line still reaches the author. */
+  /* safeDecode, not decodeB64: this was the one bare decode left at IIFE top
+     level, and it is upstream of everything. Measured by corrupting each
+     data-* attribute in turn on one real brief -- a bad data-title or
+     data-sources costs only the masthead (toc 10, diagrams 4, badges 3,
+     progress 3, unchanged), while a bad data-diag gave toc 0, diagrams 0,
+     badges 0, progress 0, an uncaught "Failed to execute 'atob'", and
+     data-diagrams never set at all: the index, every diagram, the badges, the
+     progress bars and the mermaid extraction all die, and a harness waiting on
+     [data-diagrams] hangs forever. The suite already asserts this containment
+     for title and sources by name; this was the third site. */
+  safeDecode(document.body.dataset.diag, "diagnostics: decode").split("\n").forEach(function(w){
+    if (planH2) return;
+    if (w.trim()) banner("Source problem", w.trim());
+  });
+
+  /* ---------- DOM decoration ----------
+     One guard() per section, per the containment pattern above: a throw while
+     unwrapping callouts must not cost the reader their badges, their progress
+     bars, or anything Tasks 12-14 append after this point. */
+
+  /* ---------- mermaid fences -> placeholder boxes ---------- */
+  /* Extraction only. Task 13 renders data-src into the box; keeping the two
+     apart means a mermaid failure cannot take the fence's text with it. */
+  guard("decorate: mermaid fences", function(){
+    Array.prototype.forEach.call(content.querySelectorAll("pre > code.language-mermaid"), function(code){
+      var box = document.createElement("div");
+      box.className = "mermaid-block";
+      box.dataset.src = code.textContent;
+      code.parentNode.replaceWith(box);
+    });
+  });
+
+  /* ---------- GitHub-style callouts (incl. PENDING) ---------- */
+  guard("decorate: callouts", function(){
+    var ALERTS = { NOTE:"note", WARNING:"warning", IMPORTANT:"important",
+                   TIP:"tip", CAUTION:"important", PENDING:"pending" };
+    var LABELS = { PENDING:"Plan not yet written" };
+    Array.prototype.forEach.call(content.querySelectorAll("blockquote"), function(bq){
+      /* firstElementChild, not querySelector("p"): the latter is descendant-
+         scoped, so for "> > [!WARNING]" the OUTER blockquote is handed the
+         INNER one's paragraph -- the outer converts, the inner's marker is
+         sliced off, and the inner can then never convert. A loose list inside
+         a quote whose first bullet opens with a marker hijacks it the same
+         way. GitHub's rule is the one enforced here: the marker must be the
+         blockquote's own first line. */
+      var first = bq.firstElementChild;
+      if (!first || first.tagName !== "P") return;
+      var m = first.innerHTML.match(/^\s*\[!([A-Z]+)\]\s*(<br\s*\/?>)?\s*/);
+      if (!m || !ALERTS[m[1]]) return;
+      first.innerHTML = first.innerHTML.slice(m[0].length);
+      var div = document.createElement("div");
+      div.className = "callout " + ALERTS[m[1]];
+      var label = document.createElement("span");
+      label.className = "callout-label";
+      label.textContent = LABELS[m[1]] || m[1].toLowerCase();
+      div.appendChild(label);
+      while (bq.firstChild) div.appendChild(bq.firstChild);
+      bq.replaceWith(div);
+    });
+  });
+
+  /* Placed AFTER the callout conversion, and specific to .callout.pending.
+     ".callout" cannot exist before the section above runs, and "blockquote"
+     is satisfied by any quoted line -- which every realistic spec has -- so
+     the old "blockquote, .callout" predicate was true on every document and
+     the check could never fire. */
+  if (planH2 && document.body.dataset.planState === "pending" &&
+      !content.querySelector(".callout.pending")) {
+    banner("Pending notice missing",
+      "This brief was rendered before the plan was written, but the notice " +
+      "saying so did not render. Treat the Plan section as unwritten.");
+  }
+
+  /* ---------- capture clean heading text BEFORE badges/progress mutate it ---------- */
+  /* The index (Task 14) reads data-toc. Captured after the two sections below,
+     it would read "Task 1: Render scriptstatic-verifiable" -- the badge and the
+     progress counter concatenated into the entry. */
+  guard("decorate: heading toc text", function(){
+    Array.prototype.forEach.call(content.querySelectorAll("h1, h2, h3"), function(h){
+      h.dataset.toc = h.textContent.replace(/\s*[—–-]\s*(static-verifiable|browser-walk-only)\s*$/, "").trim();
+    });
+  });
+
+  /* A helper, not a section: it stays unwrapped at IIFE scope deliberately.
+     Wrapping it in guard() for consistency would scope the declaration to that
+     callback, and every caller -- the progress section below and Task 12's
+     dependency graph -- would die with "sectionNodes is not defined", caught
+     by their own guards and reported under a label naming the wrong section. */
+  function sectionNodes(h){
+    var out = [], n = h.nextElementSibling;
+    while (n && !/^H[1-3]$/.test(n.tagName)) { out.push(n); n = n.nextElementSibling; }
+    return out;
+  }
+
+  /* ---------- task dependency graph, built from **Depends on:** ---------- */
+  function buildDag(headings){
+    /* Ids are normalised, not used raw. Zero-padding and sub-numbers both have
+       to survive the round trip: "### Task 03:" and a "Depends on: Task 3"
+       reference are otherwise different ids and the edge silently disappears,
+       while "### Task 2.1:" and "### Task 2.2:" both collapse onto T2 because
+       "." reads as the title separator. Driven against the vendored mermaid
+       10.9.1, two node definitions sharing an id render as ONE node with the
+       last label -- no error, no warning, a real task deleted and its edges
+       misrouted onto the survivor. parseInt per dot-separated segment kills the
+       padding; keeping the dotted number as the id keeps 2.1 and 2.2 apart. */
+    function normId(raw){
+      return String(raw).split(".").map(function(seg){
+        return String(parseInt(seg, 10));
+      }).join(".");
+    }
+    /* "." is not legal in a mermaid node name; the DISPLAY id keeps it. */
+    function nodeName(id){ return "T" + id.replace(/\./g, "_"); }
+    /* Ranges are expanded BEFORE the split, and the two changes are one change:
+       adding dashes to the split alternation without this turns "Tasks 1–3"
+       into ["Tasks 1", "3"], which draws edges from 1 and 3 and drops 2 without
+       saying so — a quietly incomplete graph, which is strictly worse than the
+       honest silence it replaces. Plain integers only: "Task 2.1-2.3" is not a
+       range, and the (^|[^\d.]) guard is what keeps a dotted id's tail from
+       being read as one endpoint. Bounded at 64 because a descending or absurd
+       span is prose that happens to contain two numbers and a dash ("lines
+       1-9999"), not a declaration, and inventing thousands of ids from it costs
+       more than ignoring it; 64 is far wider than any plan this format targets. */
+    function expandRanges(str){
+      return str.replace(/(^|[^\d.])(\d+)\s*[–—-]\s*(\d+)(?![\d.])/g, function(all, pre, a, b){
+        var lo = parseInt(a, 10), hi = parseInt(b, 10), out = [];
+        if (hi < lo || hi - lo > 64) return all;
+        for (var n = lo; n <= hi; n++) out.push(n);
+        return pre + out.join(", ");
+      });
+    }
+    var tasks = [], edges = [];
+    headings.forEach(function(h){
+      /* Task 11's toc capture is a guarded section: if it ever catches, the
+         attribute is absent and h.dataset.toc.match throws. Fall back to the
+         live heading text rather than losing this feature too. */
+      var m = (h.dataset.toc || h.textContent).match(/^Task\s+(\d+(?:\.\d+)*)\s*[:.—-]?\s*(.*)$/i);
+      if (!m) return;
+      var id = normId(m[1]), label = (m[2] || "").trim() || ("Task " + id);
+      /* Anchored to the end of the heading, the same shape the toc capture
+         uses. A bare substring test paints "### Task 2: Document the
+         browser-walk-only convention — static-verifiable" amber. */
+      var walk = /\s*[—–-]\s*browser-walk-only\s*$/.test(h.textContent);
+      tasks.push({ id:id, label:label, walk:walk });
+      /* Anchored to the START of a paragraph, first declaration only, and
+         "none" suppresses. A loose search over every node in the section
+         harvests the string from prose and code fences alike — a step reading
+         'add `Depends on: Task 3` to the template' fabricated a real edge.
+         The HR stop closes the other end of the same leak: the last task's
+         section runs to EOF, so a closing paragraph sitting after a "---" rule,
+         which belongs to no task at all, was attributed to whichever task
+         happened to come last. */
+      var nodes = sectionNodes(h);
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].tagName === "HR") break;
+        if (nodes[i].tagName !== "P") continue;
+        var dm = (nodes[i].textContent || "").trim().match(/^Depends on:\s*(.*)$/i);
+        if (!dm) continue;
+        if (!/^none\b/i.test(dm[1].trim())) {
+          /* Tokenised, never a digit harvest. Reading every number left in the
+             sentence as a task id turns "Depends on: Task 1 (see section 4.2 of
+             the spec)" into the real 1->N edge PLUS phantom 4->N and 2->N; on a
+             plan that has a task 4 the phantom reverses the real 3->4 and draws
+             a cycle the source never declared. known[] below only rescues
+             numbers larger than the task count, so its protection is strongest
+             on the two-task plans that do not need it and nil on the long ones
+             this feature exists for. A token earns an edge only if the whole
+             token is a task reference.
+
+             Dashes are separators too, so "Task 11 — see the note" keeps its
+             one real dependency instead of dropping it for the trailing prose.
+             That is why expandRanges runs first: see its comment. */
+          expandRanges(dm[1].replace(/\([^)]*\)/g, " "))
+            .split(/\s*(?:,|;|\band\b|&|\+|[–—]|\s-\s)\s*/i)
+            .forEach(function(tok){
+              var t = tok.match(/^\s*(?:Tasks?\s*)?#?(\d+(?:\.\d+)*)\.?\s*$/i);
+              if (!t) return;
+              var d = normId(t[1]);
+              if (d !== id) edges.push([d, id]);
+            });
+        }
+        break;
+      }
+    });
+    if (tasks.length < 2) return null;
+    var known = {}, dup = null;
+    tasks.forEach(function(t){ if (known[t.id] && !dup) dup = t.id; known[t.id] = true; });
+    /* Suppress rather than mislead. Two headings on the same normalised number
+       cannot be drawn without deleting one of them, and a graph that quietly
+       drops a task while captioning itself as the plan's dependency graph is
+       the exact failure class this file exists to refuse.
+
+       Not redundant now that ids are normalised — normId is itself a source of
+       collisions the raw text does not have. "### Task 2.1" and "### Task 2.01"
+       are two distinct headings that both normalise to 2.1, and this check is
+       the only thing standing between that and a silently deleted task. Do not
+       delete it as dead code. */
+    if (dup) return { src: null, dup: dup };
+    var seen = {};
+    edges = edges.filter(function(e){
+      var k = e[0] + ">" + e[1];
+      if (seen[k]) return false;            /* two declarations, one arrow */
+      seen[k] = true;
+      return known[e[0]] && known[e[1]];
+    });
+    var lines = ["flowchart LR"];
+    tasks.forEach(function(t){
+      lines.push('  ' + nodeName(t.id) + '["' + t.id + ' · ' + t.label.replace(/["]/g, "'") + '"]');
+    });
+    edges.forEach(function(e){ lines.push("  " + nodeName(e[0]) + " --> " + nodeName(e[1])); });
+    var walks = tasks.filter(function(t){ return t.walk; }).map(function(t){ return nodeName(t.id); });
+    if (walks.length){
+      lines.push("  classDef walk fill:#b45309,stroke:#b45309,color:#fff");
+      lines.push("  class " + walks.join(",") + " walk");
+    }
+    return { src: lines.join("\n"), edges: edges.length };
+  }
+  /* compareDocumentPosition, not the sibling chain: tasks nested inside a list,
+     a blockquote, or a <details> are not siblings of the sentinel and yielded
+     no graph at all, silently.
+
+     Note what this costs. planTasks() guaranteed every heading it returned was
+     a direct child of #content, and that invariant is gone: an h3 the markdown
+     renderer nested inside an <li> now qualifies. Task 12 anchors the diagram
+     and its caption on planH2 precisely because of this — anchoring on the
+     first task's parent would bury both inside that list item. That anchoring
+     must stay.
+
+     A helper, not a section: like sectionNodes above it stays unwrapped at
+     IIFE scope on purpose, since a guard() would scope the declaration to that
+     callback and its caller would die under the wrong label. */
+  function planRegionHeadings(){
+    if (!planH2) return [];
+    return Array.prototype.filter.call(content.querySelectorAll("h3"), function(h){
+      return !!(planH2.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+  }
+  /* Declared here, at IIFE scope, and assigned inside the guard below — not
+     declared inside it. Task 15 adds a sibling "No tasks found" banner that
+     reads this binding; a var inside a guard callback is function-scoped to
+     that callback and invisible to anything after it. Containment still holds:
+     what can throw is the scan, and the scan is what the guard wraps. */
+  var tasks = [];
+  var collected = false;
+  /* The same (h.dataset.toc || h.textContent) fallback the DAG builder uses,
+     and this is where it has to be: this filter is the real gate. test()
+     coerces a missing attribute to "undefined" without throwing, so a caught
+     guard for the heading toc text makes every heading test false, tasks
+     comes back empty, buildDag is never called, and the fallback inside it can
+     never fire. */
+  guard("dag: collect plan tasks", function(){
+    tasks = planRegionHeadings().filter(function(h){
+      return /^Task\s+\d+/i.test(h.dataset.toc || h.textContent);
+    });
+    collected = true;
+  });
+  /* Gated on `collected`, not on tasks.length alone. An empty `tasks` has two
+     causes — the document genuinely has no task headings, or the guard above
+     caught — and only the first is a fact about the source. Firing on the
+     second prints a confident false claim about the reader's document with the
+     task headings visible directly below the banner, which is exactly what the
+     comment on that filter forbids. Guarded per the Tasks 9-14 containment
+     doctrine: a bare top-level statement here throws uncaught and kills every
+     section after it. */
+  guard("dag: no tasks banner", function(){
+    if (planH2 && collected && document.body.dataset.planState === "attached" && !tasks.length) {
+      banner("No tasks found",
+        "This brief was rendered with a plan attached, but no task headings were " +
+        "found in the Plan section. The dependency graph is missing.");
+    }
+  });
+  guard("dag: build and insert graph", function(){
+    if (!tasks.length || !planH2) return;
+    var dag = buildDag(tasks);
+    if (!dag) return;
+    /* A suppressed graph is a banner, not a caption. .dag-caption is a faint
+       12px mono line with a negative top margin, shaped to tuck under a diagram;
+       with no diagram above it, the most important message this feature emits
+       renders as a subtitle to the Plan heading and its margin decorates
+       nothing. banner() is the surface this file already has for "something
+       about what you are reading is not what it appears", and a suppressed
+       graph is squarely that. */
+    if (!dag.src) {
+      banner("Dependency graph suppressed",
+        "Two task headings carry the number " + dag.dup + ", so any graph drawn " +
+        "from them would silently drop one.");
+      return;
+    }
+    var cap = document.createElement("div");
+    cap.className = "dag-caption";
+    /* Describes the PARSE, never the source. A caption announcing that the
+       tasks have no dependencies is a claim about the DOCUMENT, and it is flatly
+       false whenever a plan declares its dependencies as list items or table
+       cells — shapes the P-only scan above deliberately skips so that fixture
+       fences inside a plan cannot fabricate edges. Saying what was recognised
+       is true in every case and costs nothing. */
+    cap.textContent = dag.edges
+      ? "task dependency graph — derived from declared Depends on:"
+      : "no Depends on: declarations were recognised";
+    /* Anchored to planH2, not to the first task heading's parent node. Those
+       are the same element only while planTasks() returns siblings of the
+       sentinel; Task 15 replaces it with a compareDocumentPosition filter that
+       also matches an h3 the markdown renderer nested inside an <li>, and the
+       diagram and its caption would then be buried inside that list item. Box
+       first, caption second: .dag-caption pulls itself up under the diagram
+       with a negative top margin. */
+    var anchor = planH2.nextSibling;
+    var box = document.createElement("div");
+    box.className = "mermaid-block";
+    box.dataset.src = dag.src;
+    planH2.parentNode.insertBefore(box, anchor);
+    planH2.parentNode.insertBefore(cap, anchor);
+  });
+
+  /* ---------- walk-tag badges ---------- */
+  guard("decorate: walk badges", function(){
+    Array.prototype.forEach.call(content.querySelectorAll("h2 code, h3 code"), function(c){
+      var t = c.textContent.trim();
+      if (t !== "browser-walk-only" && t !== "static-verifiable") return;
+      var b = document.createElement("span");
+      b.className = "badge " + (t === "browser-walk-only" ? "walk" : "static");
+      b.textContent = t;
+      var prev = c.previousSibling;
+      if (prev && prev.nodeType === 3) prev.textContent = prev.textContent.replace(/\s*[—–-]\s*$/, "");
+      c.replaceWith(b);
+    });
+  });
+
+  /* ---------- per-task checkbox progress ---------- */
+  guard("decorate: task progress", function(){
+    Array.prototype.forEach.call(content.querySelectorAll("h3"), function(h){
+      var boxes = [];
+      sectionNodes(h).forEach(function(n){
+        boxes = boxes.concat(Array.prototype.slice.call(n.querySelectorAll('input[type=checkbox]')));
+      });
+      if (!boxes.length) return;
+      var done = boxes.filter(function(b){ return b.checked; }).length;
+      var p = document.createElement("span");
+      p.className = "progress";
+      var bar = document.createElement("span"); bar.className = "bar";
+      var fill = document.createElement("span");
+      /* floor, not round: 199/200 rounds up to a visually full bar sitting
+         next to the text "199/200", and the reader has to catch the lie. */
+      fill.style.width = Math.floor(done / boxes.length * 100) + "%";
+      bar.appendChild(fill);
+      p.appendChild(bar);
+      p.appendChild(document.createTextNode(done + "/" + boxes.length));
+      h.appendChild(p);
+    });
+  });
+
+  /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */
+  var seq = 0;
+
+  /* Mermaid serialises EVERY parse and render through one internal queue, drained
+     by `await task()`. A task that never settles is abandoned, not cancelled, so
+     it pins that queue permanently: after one stall nothing can render again, in
+     either theme. Traced against the vendored bundle — with render #1 hung, a
+     completely clean diagram's parse #2 is still pending at 3s.
+
+     Two things follow, and both are structural rather than cautionary:
+
+     1. Racing only `render` is not enough. `parse` goes through the same queue,
+        so an un-raced parse is a path along which our own chain never terminates.
+        Both are raced.
+     2. Once one box has timed out, no later box can succeed — but only if the
+        queue really is wedged. A timeout is also what a legitimately slow render
+        looks like from outside, and there the queue is healthy and every later
+        box would have rendered fine. Latching unconditionally on the first
+        timeout turns that per-box false positive into a document-wide one:
+        measured against a box that completes at 9s, an unconditional latch gave
+        4 error cards and 0 of 4 diagrams in both themes, where doing nothing
+        would have cost 1 error card and kept 3 good diagrams.
+
+        So the first timeout does not latch, it PROBES: the next box is attempted
+        on a short budget instead of the full one. If it renders, the queue was
+        never wedged, the first timeout was a false positive, and full budgets
+        resume for the rest of the document. If it times out too, the queue is
+        genuinely pinned and `wedged` latches, short-circuiting every remaining
+        box. Costs 2s on top of a real wedge; saves the whole document on a false
+        positive. Waiting a full budget per box instead would be 32s of dead time
+        on a four-box document.
+
+        The probe is safe against the mechanics it is diagnosing. On a real wedge
+        its parse simply queues behind the abandoned task and never runs, so it
+        times out on its own budget rather than hanging the accounting; adding one
+        more pending task to an already-pinned loop changes nothing observable. On
+        a false positive the slow task is still draining, and the probe runs the
+        moment it finishes — which is why the probe budget is also the window
+        within which a false positive can still be rescued.
+
+     8000ms is chosen against measurement. A typical diagram in this format
+     settles in 9-32ms and a deliberately oversized 121-node flowchart, far larger
+     than any brief produces, in 217ms; 8s is ~36x that worst case, so a slow or
+     throttled machine cannot false-positive and destroy a good diagram. 2000ms
+     for the probe is the same reasoning at a tighter ratio — ~9x that oversized
+     worst case — because it is pure dead time on a real wedge and only has to be
+     long enough to tell a working queue from a pinned one. Note both are layout
+     budgets, not network ones: a payload can put a remote url() into the emitted
+     stylesheet only through the config keys the `secure` list below pins, and a
+     font or image fetch does not block the render promise anyway. */
+  var wedged = false;
+  var probing = false;
+  var RENDER_TIMEOUT_MS = 8000;
+  var PROBE_TIMEOUT_MS = 2000;
+  function raceQueue(p, what){
+    /* Fixed at call time: the budget this attempt is judged on cannot change
+       underneath it if another box flips the flag. */
+    var budget = probing ? PROBE_TIMEOUT_MS : RENDER_TIMEOUT_MS;
+    return new Promise(function(resolve, reject){
+      /* Rejects, never resolves. A timeout that resolved would hand the success
+         branch an undefined result and leave an empty slot behind with no error
+         card and no console line — the silent failure this section refuses. */
+      var timer = setTimeout(function(){
+        if (probing) wedged = true;   /* the probe timed out too: really pinned */
+        else probing = true;          /* first timeout: diagnose before latching */
+        reject(new Error(what + " timed out after " + budget + "ms"));
+      }, budget);
+      Promise.resolve(p).then(
+        function(v){
+          clearTimeout(timer);
+          /* Anything settling proves the queue drains, which retires the probe
+             and restores full budgets for the rest of the document. */
+          probing = false;
+          resolve(v);
+        },
+        function(e){ clearTimeout(timer); reject(e); }
+      );
+    });
+  }
+
+  /* Both themes for ONE box before moving to the next, rather than one theme
+     across every box before starting the other. That ordering is load-bearing
+     now that the queue wedge above is known to be permanent: with two sweeping
+     passes, a stall partway through leaves every earlier box holding a light
+     render and no dark one, and in dark theme CSS hides .d-light and finds no
+     .d-dark — so a reader in dark mode gets blank cards for diagrams that
+     rendered perfectly. Interleaved, every box before the stall is complete in
+     both themes and only the stalled box and its successors degrade.
+
+     It is not free and it is not neutral in every direction, so both were
+     checked: it costs one extra mermaid.initialize per box per theme, measured
+     at 0.47ms a call — about 5ms on a six-diagram brief. It does not affect
+     print, which forces .d-light and sees the same set of light renders either
+     way. And it does not affect the duplicate-unnamespaced-id question in walk
+     case 11: a fragment reference resolves to the first match in document order,
+     which is box 0's LIGHT marker under both orderings, since both begin with
+     that box's light render. */
+  var PASSES = [{ theme:"default", cls:"d-light" }, { theme:"dark", cls:"d-dark" }];
+
+  /* Rewrite every id one pass emitted so it cannot collide with the other
+     pass's copy, then repoint every reference that names one.
+
+     Mermaid does not namespace the marker ids a sequenceDiagram emits —
+     arrowhead, crosshead, sequencenumber, filled-head — nor clock, database or
+     computer, so a page holding a light AND a dark render of one diagram holds
+     two elements sharing each of those ids. url(#arrowhead) resolves to the
+     FIRST match in document order, which is always the light pass, and in dark
+     theme that element sits inside a display:none subtree — a marker that is
+     not rendered paints nothing at all.
+
+     Observed in Chrome on a three-message sequenceDiagram before this ran, and
+     it is worse than the "wrong colour" walk case 11 predicted: the dark render
+     lost every arrowhead and every autonumber bubble outright while the light
+     render kept both. Namespacing per pass is the fix named there; reversing
+     the pass order is not, because print forces .d-light and would inherit the
+     same defect.
+
+     References live in attribute values as url(#id) and in href/xlink:href as
+     a bare #id, and mermaid's own emitted <style> can carry url(#id) too, so
+     all three are rewritten. Ids are renamed only after every reference has
+     been repointed — renaming first would leave the rewrite nothing to match. */
+  function nsIds(root, seed){
+    var owned = [], all0 = root.querySelectorAll("[id]"), map = {}, keys = [], i, j;
+    for (i = 0; i < all0.length; i++) {
+      /* The root <svg>'s own id is the one id that must NOT be rewritten:
+         mermaid scopes its emitted stylesheet as `#<svgId> .actor{...}`, a
+         plain CSS id selector rather than a url(#) reference, so renaming it
+         detaches every theme rule at once. Measured when this function did
+         rename it: the dark render came back with light actor boxes, no message
+         lines and stray black autonumber blobs — visibly worse than the
+         duplicate-id defect it was written to fix. It is already unique per
+         render, so it needs no help from here. */
+      if (all0[i].tagName.toLowerCase() === "svg" && all0[i].parentNode === root) continue;
+      owned.push(all0[i]);
+    }
+    for (i = 0; i < owned.length; i++) {
+      if (!owned[i].id || map[owned[i].id]) continue;
+      map[owned[i].id] = seed + "-" + owned[i].id;
+      keys.push(owned[i].id);
+    }
+    if (!keys.length) return;
+    var swap = function(v){
+      var out = v;
+      for (j = 0; j < keys.length; j++) out = out.split("url(#" + keys[j] + ")").join("url(#" + map[keys[j]] + ")");
+      return out;
+    };
+    var all = root.querySelectorAll("*");
+    for (i = 0; i < all.length; i++) {
+      var el = all[i];
+      for (var a = 0; a < el.attributes.length; a++) {
+        var at = el.attributes[a], v = at.value, out = swap(v);
+        if ((at.name === "href" || at.name === "xlink:href") && v.charAt(0) === "#" && map[v.slice(1)]) {
+          out = "#" + map[v.slice(1)];
+        }
+        if (out !== v) at.value = out;
+      }
+      if (el.tagName && el.tagName.toLowerCase() === "style") {
+        var t = swap(el.textContent);
+        if (t !== el.textContent) el.textContent = t;
+      }
+    }
+    for (i = 0; i < owned.length; i++) if (map[owned[i].id]) owned[i].id = map[owned[i].id];
+  }
+
+  function renderBox(box){
+    var src = box.dataset.src;
+    return PASSES.reduce(function(chain, pass){
+      return chain.then(function(){
+        /* An earlier pass failed and turned this box into an error card, which
+           also dropped its data-src. Nothing left for this pass to do. */
+        if (box.classList.contains("mermaid-error")) return;
+        var id = "mmd-" + (seq++);
+        return Promise.resolve()
+          .then(function(){
+            if (wedged) throw new Error("Skipped: an earlier diagram timed out and mermaid's render queue does not recover");
+            mermaid.initialize({
+              startOnLoad:false, securityLevel:"strict",
+              /* initialize() is not, on its own, a control over untrusted
+                 content. Mermaid 10.9.1 lets a %%{init: ...}%% directive — or an
+                 equivalent YAML frontmatter block, which funnels through the same
+                 addDirective — override any config key absent from the `secure`
+                 list, and its stock list omits every key this file depends on.
+                 The sanitiser walks a directive recursively at every depth and
+                 matches leaf names exactly, so naming the leaf key is enough and
+                 covers both syntaxes.
+
+                 themeCSS is the sharpest of them: it is concatenated verbatim
+                 into the emitted <style>, at top level, outside any block. Its
+                 only check is a brace-balance test, which zero braces trivially
+                 pass, so a payload can add an @font-face plus a rule that uses it
+                 and the browser fetches the font from a host of its choosing.
+                 fontFamily and altFontFamily reach the same stylesheet but land
+                 inside a :root{ } block that the brace test stops them escaping.
+                 htmlLabels reaches markup; theme repaints the LIGHT slot in dark
+                 colours, which print then reproduces because print forces
+                 .d-light. Every one of these was reproduced on real render.sh
+                 output before being pinned here, by fence, by frontmatter, and
+                 through Task 12's generated node label. */
+              secure:["secure","securityLevel","startOnLoad","maxTextSize","maxEdges","htmlLabels","theme","themeCSS","fontFamily","altFontFamily"],
+              /* Labels as SVG text, not innerHTML. See this task's preamble: at
+                 strict, v10 still inserts flowchart labels as HTML and DOMPurify
+                 keeps <img>, so an image tag in a task heading fires a real
+                 network request out of a file whose whole premise is inertness. */
+              flowchart:{ htmlLabels:false },
+              theme: pass.theme, fontFamily:"inherit"
+            });
+            return raceQueue(mermaid.parse(src), "Parse");
+          })
+          .then(function(){ return raceQueue(mermaid.render(id, src), "Render"); })
+          .then(function(res){
+            var slot = document.createElement("div");
+            slot.className = pass.cls;
+            slot.innerHTML = res.svg;
+            /* Both before the slot joins the document. sweepLinks first, so no
+               anchor a `click ... href` directive built is ever live in the
+               page -- it is the one route to an anchor that never passes the
+               markdown renderer, and mermaid's strict mode does not stop
+               `//host`, `/\host` or `\\host\share`. Then nsIds, so the two
+               passes can never both hold an element called "arrowhead". */
+            sweepLinks(slot);
+            nsIds(slot, id);
+            box.appendChild(slot);
+          })
+          .catch(function(err){
+            /* Before any early return, so it runs on every failure path.
+               Mermaid removes its temp container only on the success path: both
+               failure exits throw with it still attached to <body>, where it
+               shows mermaid's own error graphic outside .shell, unclassed and
+               with no rule that hides it, in both themes and in print. Its only
+               other cleanup is a later render reusing the same id, and seq is
+               monotonic — which it must stay, since a reused id would also make
+               v10's opening getElementById(id) removal tear the previous pass's
+               injected <svg> back out of the box. */
+            ["d" + id, "i" + id].forEach(function(orphan){
+              var n = document.getElementById(orphan);
+              if (n && n.parentNode) n.parentNode.removeChild(n);
+            });
+            /* Never destroy a pass that already succeeded. The two passes mutate
+               one container; a dark-pass failure would otherwise replace a
+               perfectly good light render with an error card — and print, which
+               forces .d-light, would show the error. */
+            if (box.querySelector(".d-light svg")) {
+              /* ...but say so. Keeping the good render is right; keeping it
+                 silently is not. This was the one path in the section that
+                 produced neither a DOM signal nor a console line: a box that is a
+                 correct diagram in light and an empty card in dark, with nothing
+                 anywhere to explain the difference. */
+              warn("mermaid: " + pass.cls + " pass for an already-rendered diagram", err);
+              return;
+            }
+            box.className = "mermaid-error";
+            box.removeAttribute("data-src");
+            box.innerHTML =
+              '<div class="err-head">Diagram failed to render</div>' +
+              '<div class="err-msg">' + esc(err && err.message ? err.message : String(err)) + '</div>' +
+              '<pre><code>' + esc(src) + '</code></pre>';
+          });
+      });
+    }, Promise.resolve());
+  }
+
+  /* Completion marker for the walk harness: a waitForSelector on this beats a
+     fixed waitForTimeout, and it is the only thing that can tell "slow" apart
+     from "stalled". First writer wins, so the run-level deadline below cannot
+     overwrite a real verdict and a late completion cannot overwrite the
+     deadline's — the attribute never flaps, and a harness that reads it once has
+     a stable answer. Four values, because four things genuinely differ: the run
+     finished (with or without error cards); it died; it never finished at all;
+     or mermaid was not on the page, which is not a completed run but a page of
+     empty boxes. */
+  function markRun(state){
+    if (!root.hasAttribute("data-diagrams")) root.setAttribute("data-diagrams", state);
+  }
+  /* Belt and braces, and deliberately so: wedge detection above already bounds a
+     stalled run to one timeout, but this section has twice been certain a class
+     of hang was closed and been wrong. 20s is comfortably past the slowest
+     legitimate run measurable here (a twenty-diagram brief of oversized graphs is
+     ~8.7s, and a wedged one ~8.1s) and comfortably inside the 30s the browser
+     harness waits, so the page always answers before the harness gives up. */
+  var RUN_DEADLINE_MS = 20000;
+  var runDeadline = setTimeout(function(){ markRun("stalled"); }, RUN_DEADLINE_MS);
+
+  /* guard() covers the synchronous kick-off — the querySelectorAll and the reduce
+     that builds the chain. Everything after the first tick, including every
+     mermaid.initialize (which now runs inside a .then, per box and per theme), is
+     a promise rejection that guard() structurally cannot see; the terminal .catch
+     is what covers those. Without it a failure there is an unhandled rejection:
+     no label, no warn(), nothing attributable to this file. */
+  var diagramsStarted = false;
+  guard("mermaid: start dual-theme render", function(){
+    if (typeof mermaid === "undefined") {
+      markRun("unavailable");
+      clearTimeout(runDeadline);
+      diagramsStarted = true;
+      return;
+    }
+    Array.prototype.slice.call(document.querySelectorAll("[data-src]"))
+      .reduce(function(chain, box){
+        return chain.then(function(){ return renderBox(box); });
+      }, Promise.resolve())
+      .then(function(){ markRun("done"); })
+      .catch(function(e){ warn("mermaid: dual-theme render chain", e); markRun("failed"); })
+      .then(function(){ clearTimeout(runDeadline); });
+    diagramsStarted = true;
+  });
+  /* The third state, found by measurement rather than reasoning: when guard()
+     catches a synchronous throw the chain never starts, so neither .then nor
+     .catch above can ever run and no marker is set. Observed at 63s with the
+     attribute still absent — a harness waiting on [data-diagrams] hangs forever
+     on the one path that is already a hard failure. Mark it here, synchronously. */
+  if (!diagramsStarted) { markRun("failed"); clearTimeout(runDeadline); }
+
+  /* ---------- build TOC ---------- */
+  /* These declarations stay at IIFE scope, deliberately outside the guard()
+     below: `toc` is read by all three sections this task adds, and a guard()
+     wrapper would scope the declaration to its own callback, leaving the
+     scrollspy and the sidebar dead with a ReferenceError reported under
+     someone else's label -- the sectionNodes precedent above. */
+  /* Ids are payload-derived, and the document already holds ids this function
+     did not generate. Two populations, and they need different answers:
+
+     Ids that exist BY NOW -- the shell's own. A heading titled "Sidebar" or
+     "Toc" used to take one, so its index link scrolled to the aside or to the
+     nav instead of to the heading. Measured, not supposed.
+
+     Ids that do not exist yet. This section is synchronous and the diagram
+     chain is still in flight, so not one of the ~54 ids the dual-theme render
+     injects exists when this runs, and no lookup can see them. Sixteen of them
+     are literals in the vendored bundle, and because base is lowercased, eight
+     are reachable from a heading: arrowend, arrowhead, crosshead, filled-head,
+     sequencenumber, clock, computer and database -- three of which are
+     plausible section names in a real spec. Colliding with one gives an index
+     link that resolves into <defs>, unrendered and zero-size. Colliding with a
+     box id was worse: render() opens by removing the elements whose ids are the
+     box id and that id prefixed with d and with i, so the heading itself was
+     DELETED from the document on the SUCCESS path, with no error card and no
+     console line.
+
+     One unconditional prefix answers both, and answers the second population --
+     the one nothing can look up -- as completely as the first. Every id the
+     library emits either has its own prefix or is one of those literals; none
+     can begin "h-". It is not airtight, and the honest limit is worth stating:
+     the bundle also emits payload-derived ids through attr("id", node.id)
+     forms, so a deliberately hostile diagram node named "h-something" could
+     still collide. What it eliminates is every accidental collision and every
+     literal one. Task 17's deadAnchors probe is the backstop for the rest --
+     it asserts the spec-level property (every index entry resolves to its own
+     heading) in a real browser, after the diagrams have landed, rather than
+     chasing a version-coupled vocabulary here.
+
+     The retry loop is what handles collisions among the headings themselves,
+     and it replaced a per-base counter whose own output collided with real
+     headings: "Foo", "Foo", "Foo 2" gave the second and third heading one id,
+     which costs a working index entry (the link map keeps one per key) and
+     sends its anchor to the wrong section. It terminates because what it tests
+     is finite: neither `used` nor the document grows inside the body, and each
+     turn proposes a distinct candidate, so a free one is reached in at most one
+     turn more than there are ids already taken. Never put a PATTERN in that
+     condition -- tested against a candidate rather than against base, a pattern
+     the body can keep re-satisfying never terminates, and guard() catches
+     throws, not hangs: a pinned main thread shows no error card, no console
+     line, never resumes the diagram chain, and never even lets the run
+     deadline's setTimeout fire.
+
+     Two measured properties worth not re-deriving. The loop is quadratic in the
+     number of headings sharing one base -- ~30s at ~32k collisions, which no
+     brief approaches, but it is a payload-controlled cost. And \w is ASCII-only,
+     so a wholly non-Latin heading strips to "" and becomes section, section-2,
+     ...; navigation still works, because every link carries data-target and the
+     id it names, but the anchors are not readable.
+
+     Object.create(null) is defence in depth rather than the fix: a plain {}
+     inherits Object.prototype, and under the old counter a heading titled
+     "constructor" found a truthy value in an empty map and two such headings
+     shared one id. The retry loop above closes that on its own -- measured, {}
+     and no map at all both produce byte-identical output today. It stays
+     because it costs nothing and removes a whole class of surprise. */
+  var used = Object.create(null);
+  function slug(s){
+    var base = "h-" + (s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-") || "section");
+    var id = base, n = 1;
+    while (used[id] || document.getElementById(id)) {
+      n++; id = base + "-" + n;
+    }
+    used[id] = true;
+    return id;
+  }
+  var toc = document.getElementById("toc");
+  var list = document.createElement("ul");
+  var group = null, kids = null;
+  /* Task headings attach to the Plan group by REGION, not by heading adjacency.
+     Nesting h3s under "whichever h2 came last" is why the plan's tasks have
+     been stolen in five consecutive review rounds — by an unnested h3, a stray
+     h1, a demoted h2, and a setext h2 manufactured from YAML front matter.
+     Each fix removed one trigger and left the mechanism. The sentinel gives an
+     exact anchor for where the plan STARTS, so use that instead of adjacency.
+
+     The rule, stated because an earlier version of this comment described one
+     the code does not implement: a task-shaped h3 joins the Plan group if it
+     FOLLOWS the plan heading anywhere in the document. There is no upper bound
+     at the next h2, so a task-shaped h3 under a trailing "## Self-Review" is
+     pulled forward into the Plan group, out of document order.
+
+     That membership rule is intentional rather than a gap. render.sh appends
+     the sentinel heading and then the whole plan document to EOF, so every h2
+     the plan carries of its own legitimately follows the sentinel, and every
+     task under those h2s legitimately belongs to the plan. What is odd is the
+     index ORDERING alone, and only for a plan that puts task-shaped h3s after a
+     later h2 — which this repo's plan template does not.
+
+     The index keeps its own copy of the predicate deliberately. Task 15
+     rewrites the DAG's collector into planRegionHeadings() but does not
+     consolidate this one: its own assertions pin that, expecting two
+     occurrences of the position constant, the second being the line below,
+     surviving that refactor untouched. The two copies are semantically
+     identical -- same anchor (planH2), same document-position relation, same
+     answer for every node -- so this is redundancy, not two rules that could
+     disagree. It does mean a change to one is only a change
+     to one: anybody altering what "in the plan region" means has to alter both
+     deliberately, and the count assertion is what forces them to notice. */
+  var planGroup = null, planKids = null;
+
+  /* Three sections, three guards -- not one wrapper around all three. They form
+     a one-way chain: the scrollspy and the sidebar both read what this first
+     section builds, so a failure upstream degrades what is below it while each
+     of those still reports under its own label. One wrapper would make the
+     coupling symmetric instead, and the worst case of that is concrete: a
+     viewer whose engine lacks the observer API the scrollspy needs would also
+     lose the sidebar toggle, and on a narrow viewport that toggle is the only
+     way to reach the index at all. A reader who loses the scrollspy and keeps a
+     working index has lost a highlight; a reader who loses the toggle has lost
+     navigation. */
+  guard("index: build", function(){
+    /* h2/h3 only. render.sh flattens every surviving H1 to h4, so there is one
+       hierarchy. Treating H1 as a peer group let a stray H1 between an H2 and
+       its H3s steal those children, emptying the Plan group. */
+    Array.prototype.forEach.call(content.querySelectorAll("h2, h3"), function(h){
+      /* Same fallback as the DAG builder: Task 11's capture is guarded, so the
+         attribute is not guaranteed, and undefined here means "undefined" as an
+         index label. */
+      var text = h.dataset.toc || h.textContent;
+      h.id = slug(text);
+      var a = document.createElement("a");
+      a.href = "#" + h.id;
+      a.textContent = text;
+      a.dataset.target = h.id;
+
+      if (h.tagName === "H2") {
+        group = document.createElement("li");
+        group.className = "toc-group no-kids";
+        var row = document.createElement("div"); row.className = "toc-l2";
+        var chev = document.createElement("button");
+        chev.className = "chevron";
+        chev.setAttribute("aria-expanded", "true");
+        chev.textContent = "▾";
+        a.className = "lvl2";
+        row.appendChild(chev); row.appendChild(a);
+        kids = document.createElement("ul"); kids.className = "kids";
+        group.appendChild(row); group.appendChild(kids);
+        list.appendChild(group);
+        if (h === planH2) { planGroup = group; planKids = kids; }
+        (function(c, k){
+          c.addEventListener("click", function(){
+            var open = c.getAttribute("aria-expanded") === "true";
+            c.setAttribute("aria-expanded", String(!open));
+            k.hidden = open;
+          });
+        })(chev, kids);
+      } else if (group) {
+        /* `group` is null until the first h2, so an h3 preceding every h2 is
+           silently dropped from the index -- it still gets an id and is still
+           observed, it just has no entry. The sentinel guarantees at least one
+           h2 exists, but not that it precedes the document's first h3, and a
+           top-level li with no group has nowhere correct to sit. */
+        var owner = group, into = kids;
+        if (planKids && /^Task\s+\d+/i.test(text) && planH2 !== h &&
+            (planH2.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+          owner = planGroup; into = planKids;
+        }
+        owner.classList.remove("no-kids");
+        var li = document.createElement("li");
+        li.appendChild(a);
+        into.appendChild(li);
+      }
+    });
+    toc.appendChild(list);
+  });
+
+  /* ---------- scrollspy ---------- */
+  guard("index: scrollspy", function(){
+    var links = {};
+    Array.prototype.forEach.call(toc.querySelectorAll("a[data-target]"), function(a){ links[a.dataset.target] = a; });
+    var visible = {};
+    /* Snapshotted once. It stays consistent with the index only while nothing
+       later adds, removes or moves a heading -- an invariant a future task could
+       break silently, since a heading appearing after this line gets no index
+       entry, no id and no observer, with nothing anywhere to say so. Plenty
+       mutates the document after this point -- the theme, chevron and sidebar
+       handlers all do -- but none of them adds, removes or moves a heading, and
+       Task 13's renderer, the one that inserts nodes into #content, touches
+       [data-src] boxes only. That is the operative clause, not "nothing runs
+       later". */
+    var heads = Array.prototype.slice.call(content.querySelectorAll("h2, h3"));
+    var obs = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){ visible[e.target.id] = e.isIntersecting; });
+      /* Re-derived from `heads`, which is in document order, rather than from
+         `entries`: the observer makes no ordering guarantee about the records
+         it delivers, and trusting them is how most hand-rolled scrollspies pick
+         the wrong heading on a fast scroll. */
+      var first = heads.filter(function(h){ return visible[h.id]; })[0];
+      /* Sticky, and this is the difference between a highlight and no highlight
+         for most of the document. rootMargin shrinks the root to the top 30% of
+         the viewport, so a heading is "visible" for about 0.3*vh plus its own
+         height -- ~310px at vh=900, against sections that run thousands. With
+         nothing in that band the clear loop below would strip every active
+         class and add none, so the index would sit blank through the body of
+         every section. Worse, it is not merely transient: putting heading H in
+         the band needs scrollTop >= H.offsetTop - 0.3*vh, and scrollTop tops
+         out at docHeight - vh, so ANY heading with less than 0.7 of a viewport
+         of content after it can never enter the band at all -- the last section
+         of every brief, permanently. Keeping the previous highlight self-
+         corrects in both directions, because scrolling back up brings the
+         previous heading down through the band from above.
+
+         Resolved to the link FIRST, so the same early return covers the second
+         way this goes blank: a heading with no index entry. An h3 preceding
+         every h2 gets an id and an observer but no li (see the index walk
+         above), so `first` is truthy while links[first.id] is undefined --
+         under a `first`-only test the clear loop still ran and nothing was
+         added. Measured before the fix: [] -> ['Real Section'] -> []. */
+      var a = first && links[first.id];
+      if (!a) return;
+      Object.keys(links).forEach(function(k){ links[k].classList.remove("active"); });
+      a.classList.add("active");
+    }, { rootMargin:"0px 0px -70% 0px", threshold:0 });
+    heads.forEach(function(h){ obs.observe(h); });
+  });
+
+  /* ---------- mobile sidebar ---------- */
+  guard("index: mobile sidebar", function(){
+    var sb = document.getElementById("sidebar");
+    document.getElementById("sbToggle").addEventListener("click", function(){ sb.classList.toggle("open"); });
+    toc.addEventListener("click", function(e){ if (e.target.tagName === "A") sb.classList.remove("open"); });
+  });
+})();
+</script>
+</body>
+</html>

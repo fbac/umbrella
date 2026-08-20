@@ -20,6 +20,10 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 **Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 - (User preferences for plan location override this default)
 
+**Author with:** the block catalog at `$BRIEF_DIR/BLOCKS.md` — plan blocks 24-27,
+and the `### Task <N>:` heading contract that every `**Depends on:**` edge resolves
+against. `$BRIEF_DIR` is defined under "Render the Change Brief" below.
+
 ## Scope Check
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking this into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
@@ -71,10 +75,16 @@ This structure informs the task decomposition. Each task should produce self-con
 ---
 ```
 
+Keep the `# … Implementation Plan` H1. `render.sh` strips it when building the
+change brief so the merged document has exactly one H1 — this is documented so
+nobody "fixes" the H1 away.
+
 ## Task Structure
 
 ````markdown
 ### Task N: [Component Name]  — `static-verifiable` | `browser-walk-only`
+
+**Depends on:** Task A, Task B
 
 **Files:**
 - Create: `exact/path/to/file.py`
@@ -114,6 +124,14 @@ git commit -m "feat: add specific feature"
 ```
 ````
 
+Copy that block verbatim; everything inside it is plan content. Write
+`**Depends on:** none` when a task is independent, and put nothing else on that
+line. A trailing HTML comment is escaped into the brief as literal text *and*
+glues onto the last task id, which then stops looking like a task reference:
+measured on a three-task plan whose Task 3 carried `Task 1, Task 2` plus an
+"or none" comment, the brief drew Task 1 → Task 3 and silently omitted
+Task 2 → Task 3, with no banner and exit 0.
+
 ## No Placeholders
 
 Every step must contain the actual content an engineer needs. These are **plan failures** — never write them:
@@ -142,17 +160,44 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 **4. Walk-tag coverage (Umbrella):** Is every task tagged `static-verifiable` or `browser-walk-only`? Does every spec walk-only requirement map to a `browser-walk-only` task? Is the `## Browser-Walk Inventory` present with one plain-prose case per walk-only item?
 
+**5. Dependency declarations (Umbrella):** Does every task carry a `**Depends on:**` line as the first paragraph under its heading? Does every referenced task exist? Is the dependency set acyclic?
+
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
 ## Adversarial Plan Review (Umbrella gate)
 
 Dispatch a fresh subagent to adversarially review the plan using `skills/writing-plans/plan-document-reviewer-prompt.md`. Iterate until it scores **>90** before execution handoff.
 
+## Render the Change Brief
+
+Once the plan review passes, re-render the brief with both sources:
+
+```bash
+"$BRIEF_DIR/render.sh" docs/specs/<name>.md docs/plans/<name>.md -o docs/briefs/<name>.html
+```
+
+`$BRIEF_DIR` is `<announced skill base directory>/../../assets/change-brief`.
+`${CLAUDE_PLUGIN_ROOT}` is not set in the Bash tool environment. Verify
+`[ -x "$BRIEF_DIR/render.sh" ]` first — **if the assets cannot be found, report
+it and continue on the markdown. A missing renderer must never block the gate.**
+
+Executing subagents read `docs/plans/*.md`. They never read `docs/briefs/*.html`.
+
+## User Review Gate
+
+After the brief renders, ask the user to review the plan before offering any
+execution option:
+
+> "Plan written and saved to `<path>`, and rendered to `<brief path>`. Open the brief in your browser and review it — the index on the left navigates the tasks, and the dependency graph shows the order they unlock in. **Changing the plan still costs only a plan rewrite right now**; once execution starts the same change costs code. Let me know if you want changes before we pick an execution mode."
+
+Wait for the user's response. If they request changes, make them and re-run the
+plan review loop. Only proceed to the Execution Handoff once the user approves.
+
 ## Execution Handoff
 
 After saving the plan, offer execution choice:
 
-**"Plan complete and saved to `docs/plans/<filename>.md`. Two execution options:**
+**"Plan complete and saved to `docs/plans/<filename>.md`, rendered to `docs/briefs/<filename>.html`. Two execution options:**
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
 
