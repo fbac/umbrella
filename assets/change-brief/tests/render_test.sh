@@ -13,6 +13,19 @@ chk(){ if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "expected [$3] got [$2]"; 
 echo "== repo scaffold =="
 grep -q '^docs/briefs/$' "$R/.gitignore" && ok "gitignore excludes docs/briefs/" \
   || no "gitignore excludes docs/briefs/" "missing"
+# .gitattributes pinned the pipeline sources and the fixtures and left the two
+# directories render.sh actually reads unspecified. Measured before the fix:
+# `git check-attr text docs/plans/*.md` said `unspecified`, and a CRLF spec is
+# refused by name -- `render.sh: spec spec-crlf.md has CRLF line endings;
+# convert to LF before rendering`, exit 1 -- so a core.autocrlf=true clone could
+# not render its own brief, which is the exact outcome the existing lines say
+# they exist to prevent. Asked of git, on a path that need not exist, rather
+# than grepped out of the file: an `eol=lf` line a later pattern overrides, or
+# one whose directory has since moved, still greps green while pinning nothing.
+for d in docs/specs docs/plans; do
+  chk "$d/*.md pinned to LF" \
+    "$(git -C "$R" check-attr eol -- "$d/any.md" 2>/dev/null | sed 's/.*: //')" "lf"
+done
 
 echo "== vendor pinning =="
 for v in marked mermaid; do
@@ -1584,9 +1597,20 @@ chk "  defines both walk tags and the Inventory case rule" \
 # documented only block 26's `**Depends on:** Task 3` half of it. Measured
 # against a two-task plan written `### 1. Repository scaffold`: no dependency
 # graph rendered AT ALL, and with a `##` between the tasks the second was
-# indexed under that section instead of Plan. Both silent.
-chk "  documents the ### Task N: heading contract" \
-  "$(flat "$B" | grep -cF 'Task headings must start ``### Task <N>:``')$(flat "$B" | grep -cF 'no dependency graph is drawn at all')" "11"
+# indexed under that section instead of Plan.
+#
+# The catalog then called that cost "silent", and only half of it is. Measured
+# in chromium on two rendered briefs: all headings non-conforming yielded the
+# banner `No tasks found -- This brief was rendered with a plan attached, but no
+# task headings were found in the Plan section.`, loudly. A plan mixing
+# `### Task 1:`, `### 2. Render script` and `### Task 3:` yielded `banners: []`
+# and a graph holding T1 and T3 only -- Task 3 declared `Task 1, Task 2` and got
+# the T1 edge alone, because `known[]` drops an edge whose endpoint never became
+# a node. That is the silent case, and it is the one that looks finished. Both
+# halves are pinned, so restoring the old blanket claim reads 100 and dropping
+# either behaviour reads 110 or 101.
+chk "  documents the ### Task N: heading contract and both of its costs" \
+  "$(flat "$B" | grep -cF 'Task headings must start ``### Task <N>:``')$(flat "$B" | grep -cF 'paints a "No tasks found" banner')$(flat "$B" | grep -cF 'carry it and some do not, nothing is flagged')" "111"
 # The catalog said which tag to choose and never where to put it, and the
 # placement its wording implied is one the renderer ignores. Measured against
 # `### Task 2: ` + walk tag + ` — Render script`: the badge still paints, so it
@@ -1627,8 +1651,33 @@ WP="$R/skills/writing-plans/SKILL.md"
 # same task added: the declaration deleted from the task template still
 # reported 337 passed, 0 failed. Scoped to the template section the label
 # names, so check 5 can no longer stand in for it.
-chk "task template carries Depends on" \
-  "$(sed -n '/^## Task Structure$/,/^## No Placeholders$/p' "$WP" 2>/dev/null | grep -cF '**Depends on:** Task A, Task B   <!-- or `none` -->')" "1"
+#
+# The template then shipped its own authoring hint INSIDE the ````markdown`
+# block an agent is told to copy: `**Depends on:** Task A, Task B   <!-- or
+# `none` -->`. Measured in chromium on a three-task plan that copied it verbatim
+# and filled in real numbers -- Task 3 reading `Task 1, Task 2` plus that
+# comment: edges were `[T1->T2, T1->T3]`, the T2->T3 edge gone, `banners: []`,
+# exit 0, and the comment itself painted into the brief as literal text.
+# marked escapes raw HTML, and the DAG tokeniser only accepts a token that is
+# WHOLLY a task reference, so the comment glues onto the trailing id and eats
+# it. Deleting the comment from that same plan restored `[T1->T2, T1->T3,
+# T2->T3]`. The hint now lives in prose below the fence. Second term counts
+# comment openers across the whole section, prose included, so re-adding the
+# hint anywhere an agent might copy it reads 11 instead of 10.
+tmpl(){ sed -n '/^## Task Structure$/,/^## No Placeholders$/p' "$WP" 2>/dev/null; }
+chk "task template carries Depends on, and no hint to copy along with it" \
+  "$(tmpl | grep -cF '**Depends on:** Task A, Task B')$(tmpl | grep -c '<!--')" "10"
+# The `none` case was the only thing that hint carried, so moving the hint out
+# has to leave the rule somewhere. flat() because this is wrapped prose.
+chk "  the none case survived the move, in prose" \
+  "$(flat "$WP" | grep -cF 'Write `**Depends on:** none` when a task is independent')" "1"
+# The skill wrote plans and never named the catalog that documents plan blocks
+# 24-27 or the `### Task <N>:` heading contract every `**Depends on:**` edge
+# resolves against -- brainstorming's step 7 points at it, this did not. Two
+# terms: the pointer, and the contract it exists to carry. Neither anchor holds
+# a hyphenated compound, per the flat() note in the BLOCKS.md block above.
+chk "points the plan author at the block catalog" \
+  "$(flat "$WP" | grep -cF 'the block catalog at `$BRIEF_DIR/BLOCKS.md`')$(flat "$WP" | grep -cF 'the `### Task <N>:` heading contract')" "11"
 # `grep -q 'render.sh'` was carried by the H1 note this same task added
 # ("`render.sh` strips it when building the change brief"): the entire 14-line
 # `## Render the Change Brief` section deleted, command and all, still green.
@@ -1639,6 +1688,15 @@ grep -q 'never read' "$WP" && ok "executing subagents rule present" \
   || no "executing subagents rule present" "missing"
 grep -q 'referenced task exist' "$WP" && ok "self-review checks dangling refs" \
   || no "self-review checks dangling refs" "missing"
+# The second render is the entire reason this feature renders twice, and the
+# flow ran `## Render the Change Brief` -> `## Execution Handoff`, whose first
+# words offer two options and ask "Which approach?". The brief appeared only as
+# a clause inside that sentence; nothing told the agent to stop. brainstorming's
+# gate is the shape being matched -- an ask, then an explicit wait. First term
+# is range-scoped between the render and the handoff, so a gate section moved
+# below the handoff, where the agent has already asked, reads 011 not 111.
+chk "plan gate stops for human review before the handoff" \
+  "$(sed -n '/^## Render the Change Brief$/,/^## Execution Handoff$/p' "$WP" 2>/dev/null | grep -cE '^## User Review Gate$')$(flat "$WP" | grep -cF 'Open the brief in your browser and review it')$(flat "$WP" | grep -cF 'Only proceed to the Execution Handoff once the user approves')" "111"
 
 echo "== reviewer prompts =="
 SP="$R/skills/brainstorming/spec-document-reviewer-prompt.md"
@@ -1658,6 +1716,18 @@ chk "plan prompt has a Score field" \
 chk "spec prompt scoped to blocks 1-23" \
   "$(grep -cE '^    ## Block Coverage$' "$SP" 2>/dev/null)$(grep -cF 'Grade against **spec blocks 1-23 only**' "$SP" 2>/dev/null)" "11"
 chk "spec prompt does not grade plan blocks" "$(grep -c 'must not penalize' "$SP")" "1"
+# Both prompts named the catalog `assets/change-brief/BLOCKS.md`. These files
+# ship in the plugin and are read by agents working in CONSUMER projects, where
+# that path does not exist and nothing resolves it; every other reference in
+# this feature goes through `$BRIEF_DIR`. Three terms each: the catalog is
+# reached through the variable, the repo-relative form is gone -- the half a
+# partial revert trips -- and the resolution note the reader needs to turn the
+# variable into a path is present. The second term cannot be satisfied by the
+# note itself, which ends at `assets/change-brief` with no `/BLOCKS.md`.
+for pf in "$SP" "$PP"; do
+  chk "$(basename "$pf") reaches the catalog through \$BRIEF_DIR" \
+    "$(grep -cF '`$BRIEF_DIR/BLOCKS.md`' "$pf")$(grep -cF 'assets/change-brief/BLOCKS.md' "$pf")$(flat "$pf" | grep -cF 'set in the Bash tool environment')" "101"
+done
 grep -q 'acyclic' "$PP" && ok "plan prompt checks acyclicity" || no "plan prompt checks acyclicity" "missing"
 grep -q 'Browser-Walk Inventory' "$PP" && ok "plan prompt checks the inventory" \
   || no "plan prompt checks the inventory" "missing"

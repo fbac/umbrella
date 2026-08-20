@@ -6,6 +6,14 @@ Use this template when dispatching a spec document reviewer subagent.
 
 **Dispatch after:** Spec document is written to docs/specs/
 
+**Before dispatching:** substitute the bracketed paths, and resolve `$BRIEF_DIR`
+to an absolute path in the prompt you send. The reviewer works in the consumer
+project, where a repo-relative `assets/change-brief` does not exist. `$BRIEF_DIR`
+is `<announced skill base directory>/../../assets/change-brief`;
+`${CLAUDE_PLUGIN_ROOT}` is **not** set in the Bash tool environment. If the
+catalog cannot be found, say so in the dispatch and have the reviewer grade the
+rest — a missing catalog must never block the review gate.
+
 ```
 Task tool (general-purpose):
   description: "Review spec document"
@@ -23,7 +31,7 @@ Task tool (general-purpose):
     | Clarity | Requirements ambiguous enough to cause someone to build the wrong thing |
     | Scope | Focused enough for a single plan — not covering multiple independent subsystems |
     | YAGNI | Unrequested features, over-engineering |
-    | Block coverage | Spec blocks 1-23 from `assets/change-brief/BLOCKS.md` — see below |
+    | Block coverage | Spec blocks 1-23 from `$BRIEF_DIR/BLOCKS.md` — see below |
 
     ## Block Coverage
 

@@ -16,9 +16,15 @@ Canonical plan sections: the tasks as `###`, plus `## Browser-Walk Inventory`.
 
 Task headings must start ``### Task <N>:`` — that literal prefix, carrying the
 number, is what the renderer parses. `### Task 3: Render script` is read as a
-task; `### 3. Render script` is not, and the cost is silent: no dependency graph
-is drawn at all, and if any `##` sits between the task and the start of the
-plan, the index files the task under that section instead of Plan. Decimal ids
+task; `### 3. Render script` is not. What that costs depends on how many
+headings miss the prefix. If **no** heading in the plan region carries it, the
+brief paints a "No tasks found" banner saying the dependency graph is missing —
+the only loud case. If **some** carry it and some do not, nothing is flagged:
+the graph is drawn from the conforming subset and looks complete, the skipped
+heading gets no node, and every declared edge into it is dropped along with it.
+Either way, if a `##` sits between a skipped heading and the start of the plan,
+the index files it under that section instead of Plan — recognised tasks are
+hoisted back under Plan, so only the skipped ones move. Decimal ids
 (`Task 3.1`) are fine. This is the half of block 26 that makes it work — a
 `**Depends on:** Task 3` edge can only resolve to a heading the renderer
 recognised as Task 3.

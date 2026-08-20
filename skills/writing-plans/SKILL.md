@@ -20,6 +20,10 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 **Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 - (User preferences for plan location override this default)
 
+**Author with:** the block catalog at `$BRIEF_DIR/BLOCKS.md` — plan blocks 24-27,
+and the `### Task <N>:` heading contract that every `**Depends on:**` edge resolves
+against. `$BRIEF_DIR` is defined under "Render the Change Brief" below.
+
 ## Scope Check
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking this into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
@@ -80,7 +84,7 @@ nobody "fixes" the H1 away.
 ````markdown
 ### Task N: [Component Name]  — `static-verifiable` | `browser-walk-only`
 
-**Depends on:** Task A, Task B   <!-- or `none` -->
+**Depends on:** Task A, Task B
 
 **Files:**
 - Create: `exact/path/to/file.py`
@@ -119,6 +123,14 @@ git add tests/path/test.py src/path/file.py
 git commit -m "feat: add specific feature"
 ```
 ````
+
+Copy that block verbatim; everything inside it is plan content. Write
+`**Depends on:** none` when a task is independent, and put nothing else on that
+line. A trailing HTML comment is escaped into the brief as literal text *and*
+glues onto the last task id, which then stops looking like a task reference:
+measured on a three-task plan whose Task 3 carried `Task 1, Task 2` plus an
+"or none" comment, the brief drew Task 1 → Task 3 and silently omitted
+Task 2 → Task 3, with no banner and exit 0.
 
 ## No Placeholders
 
@@ -170,6 +182,16 @@ Once the plan review passes, re-render the brief with both sources:
 it and continue on the markdown. A missing renderer must never block the gate.**
 
 Executing subagents read `docs/plans/*.md`. They never read `docs/briefs/*.html`.
+
+## User Review Gate
+
+After the brief renders, ask the user to review the plan before offering any
+execution option:
+
+> "Plan written and saved to `<path>`, and rendered to `<brief path>`. Open the brief in your browser and review it — the index on the left navigates the tasks, and the dependency graph shows the order they unlock in. **Changing the plan still costs only a plan rewrite right now**; once execution starts the same change costs code. Let me know if you want changes before we pick an execution mode."
+
+Wait for the user's response. If they request changes, make them and re-run the
+plan review loop. Only proceed to the Execution Handoff once the user approves.
 
 ## Execution Handoff
 

@@ -4394,9 +4394,20 @@ chk "  defines both walk tags and the Inventory case rule" \
 # documented only block 26's `**Depends on:** Task 3` half of it. Measured
 # against a two-task plan written `### 1. Repository scaffold`: no dependency
 # graph rendered AT ALL, and with a `##` between the tasks the second was
-# indexed under that section instead of Plan. Both silent.
-chk "  documents the ### Task N: heading contract" \
-  "$(flat "$B" | grep -cF 'Task headings must start ``### Task <N>:``')$(flat "$B" | grep -cF 'no dependency graph is drawn at all')" "11"
+# indexed under that section instead of Plan.
+#
+# The catalog then called that cost "silent", and only half of it is. Measured
+# in chromium on two rendered briefs: all headings non-conforming yielded the
+# banner `No tasks found -- This brief was rendered with a plan attached, but no
+# task headings were found in the Plan section.`, loudly. A plan mixing
+# `### Task 1:`, `### 2. Render script` and `### Task 3:` yielded `banners: []`
+# and a graph holding T1 and T3 only -- Task 3 declared `Task 1, Task 2` and got
+# the T1 edge alone, because `known[]` drops an edge whose endpoint never became
+# a node. That is the silent case, and it is the one that looks finished. Both
+# halves are pinned, so restoring the old blanket claim reads 100 and dropping
+# either behaviour reads 110 or 101.
+chk "  documents the ### Task N: heading contract and both of its costs" \
+  "$(flat "$B" | grep -cF 'Task headings must start ``### Task <N>:``')$(flat "$B" | grep -cF 'paints a "No tasks found" banner')$(flat "$B" | grep -cF 'carry it and some do not, nothing is flagged')" "111"
 # The catalog said which tag to choose and never where to put it, and the
 # placement its wording implied is one the renderer ignores. Measured against
 # `### Task 2: ` + walk tag + ` — Render script`: the badge still paints, so it
@@ -4436,9 +4447,15 @@ Canonical plan sections: the tasks as `###`, plus `## Browser-Walk Inventory`.
 
 Task headings must start ``### Task <N>:`` — that literal prefix, carrying the
 number, is what the renderer parses. `### Task 3: Render script` is read as a
-task; `### 3. Render script` is not, and the cost is silent: no dependency graph
-is drawn at all, and if any `##` sits between the task and the start of the
-plan, the index files the task under that section instead of Plan. Decimal ids
+task; `### 3. Render script` is not. What that costs depends on how many
+headings miss the prefix. If **no** heading in the plan region carries it, the
+brief paints a "No tasks found" banner saying the dependency graph is missing —
+the only loud case. If **some** carry it and some do not, nothing is flagged:
+the graph is drawn from the conforming subset and looks complete, the skipped
+heading gets no node, and every declared edge into it is dropped along with it.
+Either way, if a `##` sits between a skipped heading and the start of the plan,
+the index files it under that section instead of Plan — recognised tasks are
+hoisted back under Plan, so only the skipped ones move. Decimal ids
 (`Task 3.1`) are fine. This is the half of block 26 that makes it work — a
 `**Depends on:** Task 3` edge can only resolve to a heading the renderer
 recognised as Task 3.
@@ -4752,8 +4769,33 @@ WP="$R/skills/writing-plans/SKILL.md"
 # same task added: the declaration deleted from the task template still
 # reported 337 passed, 0 failed. Scoped to the template section the label
 # names, so check 5 can no longer stand in for it.
-chk "task template carries Depends on" \
-  "$(sed -n '/^## Task Structure$/,/^## No Placeholders$/p' "$WP" 2>/dev/null | grep -cF '**Depends on:** Task A, Task B   <!-- or `none` -->')" "1"
+#
+# The template then shipped its own authoring hint INSIDE the ````markdown`
+# block an agent is told to copy: `**Depends on:** Task A, Task B   <!-- or
+# `none` -->`. Measured in chromium on a three-task plan that copied it verbatim
+# and filled in real numbers -- Task 3 reading `Task 1, Task 2` plus that
+# comment: edges were `[T1->T2, T1->T3]`, the T2->T3 edge gone, `banners: []`,
+# exit 0, and the comment itself painted into the brief as literal text.
+# marked escapes raw HTML, and the DAG tokeniser only accepts a token that is
+# WHOLLY a task reference, so the comment glues onto the trailing id and eats
+# it. Deleting the comment from that same plan restored `[T1->T2, T1->T3,
+# T2->T3]`. The hint now lives in prose below the fence. Second term counts
+# comment openers across the whole section, prose included, so re-adding the
+# hint anywhere an agent might copy it reads 11 instead of 10.
+tmpl(){ sed -n '/^## Task Structure$/,/^## No Placeholders$/p' "$WP" 2>/dev/null; }
+chk "task template carries Depends on, and no hint to copy along with it" \
+  "$(tmpl | grep -cF '**Depends on:** Task A, Task B')$(tmpl | grep -c '<!--')" "10"
+# The `none` case was the only thing that hint carried, so moving the hint out
+# has to leave the rule somewhere. flat() because this is wrapped prose.
+chk "  the none case survived the move, in prose" \
+  "$(flat "$WP" | grep -cF 'Write `**Depends on:** none` when a task is independent')" "1"
+# The skill wrote plans and never named the catalog that documents plan blocks
+# 24-27 or the `### Task <N>:` heading contract every `**Depends on:**` edge
+# resolves against -- brainstorming's step 7 points at it, this did not. Two
+# terms: the pointer, and the contract it exists to carry. Neither anchor holds
+# a hyphenated compound, per the flat() note in the BLOCKS.md block above.
+chk "points the plan author at the block catalog" \
+  "$(flat "$WP" | grep -cF 'the block catalog at `$BRIEF_DIR/BLOCKS.md`')$(flat "$WP" | grep -cF 'the `### Task <N>:` heading contract')" "11"
 # `grep -q 'render.sh'` was carried by the H1 note this same task added
 # ("`render.sh` strips it when building the change brief"): the entire 14-line
 # `## Render the Change Brief` section deleted, command and all, still green.
@@ -4764,12 +4806,21 @@ grep -q 'never read' "$WP" && ok "executing subagents rule present" \
   || no "executing subagents rule present" "missing"
 grep -q 'referenced task exist' "$WP" && ok "self-review checks dangling refs" \
   || no "self-review checks dangling refs" "missing"
+# The second render is the entire reason this feature renders twice, and the
+# flow ran `## Render the Change Brief` -> `## Execution Handoff`, whose first
+# words offer two options and ask "Which approach?". The brief appeared only as
+# a clause inside that sentence; nothing told the agent to stop. brainstorming's
+# gate is the shape being matched -- an ask, then an explicit wait. First term
+# is range-scoped between the render and the handoff, so a gate section moved
+# below the handoff, where the agent has already asked, reads 011 not 111.
+chk "plan gate stops for human review before the handoff" \
+  "$(sed -n '/^## Render the Change Brief$/,/^## Execution Handoff$/p' "$WP" 2>/dev/null | grep -cE '^## User Review Gate$')$(flat "$WP" | grep -cF 'Open the brief in your browser and review it')$(flat "$WP" | grep -cF 'Only proceed to the Execution Handoff once the user approves')" "111"
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: four FAILs, exit 1.
+Expected: seven FAILs, exit 1.
 
 - [ ] **Step 3a: Add `**Depends on:**` to the Task Structure template**
 
@@ -4778,9 +4829,27 @@ In `skills/writing-plans/SKILL.md`, in the Task Structure code block, insert dir
 ```markdown
 ### Task N: [Component Name]  — `static-verifiable` | `browser-walk-only`
 
-**Depends on:** Task A, Task B   <!-- or `none` -->
+**Depends on:** Task A, Task B
 
 **Files:**
+```
+
+Nothing else goes on that line. The block is copied verbatim, so an authoring
+hint left inside it ships into real plans: a trailing `<!-- or `none` -->` is
+escaped into the brief as literal text *and* glues onto the last task id, which
+then stops matching the DAG tokeniser. Measured in chromium on a three-task plan
+that copied the hinted template and filled in real numbers, Task 3 reading
+`Task 1, Task 2` plus the comment: edges `[T1->T2, T1->T3]`, the T2->T3 edge
+gone, no banner, exit 0. Put the hint in prose directly below the fence instead:
+
+```markdown
+Copy that block verbatim; everything inside it is plan content. Write
+`**Depends on:** none` when a task is independent, and put nothing else on that
+line. A trailing HTML comment is escaped into the brief as literal text *and*
+glues onto the last task id, which then stops looking like a task reference:
+measured on a three-task plan whose Task 3 carried `Task 1, Task 2` plus an
+"or none" comment, the brief drew Task 1 → Task 3 and silently omitted
+Task 2 → Task 3, with no banner and exit 0.
 ```
 
 - [ ] **Step 3b: Note the H1 interaction**
@@ -4814,7 +4883,23 @@ Once the plan review passes, re-render the brief with both sources:
 it and continue on the markdown. A missing renderer must never block the gate.**
 
 Executing subagents read `docs/plans/*.md`. They never read `docs/briefs/*.html`.
+
+## User Review Gate
+
+After the brief renders, ask the user to review the plan before offering any
+execution option:
+
+> "Plan written and saved to `<path>`, and rendered to `<brief path>`. Open the brief in your browser and review it — the index on the left navigates the tasks, and the dependency graph shows the order they unlock in. **Changing the plan still costs only a plan rewrite right now**; once execution starts the same change costs code. Let me know if you want changes before we pick an execution mode."
+
+Wait for the user's response. If they request changes, make them and re-run the
+plan review loop. Only proceed to the Execution Handoff once the user approves.
 ````
+
+The second render is the whole reason this feature renders twice, and without
+this section the flow ran render → handoff, whose first words already ask
+"Which approach?". `skills/brainstorming/SKILL.md` is the shape being matched:
+an ask, then an explicit wait. This skill has no `dot` process-flow graph, so
+there is no diagram to keep in step.
 
 Then in `## Execution Handoff`, change the first line to:
 
@@ -4830,10 +4915,23 @@ Add a fifth numbered check to `## Self-Review`:
 **5. Dependency declarations (Umbrella):** Does every task carry a `**Depends on:**` line as the first paragraph under its heading? Does every referenced task exist? Is the dependency set acyclic?
 ```
 
+- [ ] **Step 3e: Point the plan author at the block catalog**
+
+`brainstorming/SKILL.md` names the catalog in its step 7; this one named it
+nowhere, so a plan author learned neither plan blocks 24-27 nor the
+`### Task <N>:` heading contract that `**Depends on:**` parsing resolves
+against. Append directly under the `**Save plans to:**` bullet:
+
+```markdown
+**Author with:** the block catalog at `$BRIEF_DIR/BLOCKS.md` — plan blocks 24-27,
+and the `### Task <N>:` heading contract that every `**Depends on:**` edge resolves
+against. `$BRIEF_DIR` is defined under "Render the Change Brief" below.
+```
+
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: four PASSes, exit 0.
+Expected: seven PASSes, exit 0.
 
 - [ ] **Step 5: Commit**
 
@@ -4877,6 +4975,18 @@ chk "plan prompt has a Score field" \
 chk "spec prompt scoped to blocks 1-23" \
   "$(grep -cE '^    ## Block Coverage$' "$SP" 2>/dev/null)$(grep -cF 'Grade against **spec blocks 1-23 only**' "$SP" 2>/dev/null)" "11"
 chk "spec prompt does not grade plan blocks" "$(grep -c 'must not penalize' "$SP")" "1"
+# Both prompts named the catalog `assets/change-brief/BLOCKS.md`. These files
+# ship in the plugin and are read by agents working in CONSUMER projects, where
+# that path does not exist and nothing resolves it; every other reference in
+# this feature goes through `$BRIEF_DIR`. Three terms each: the catalog is
+# reached through the variable, the repo-relative form is gone -- the half a
+# partial revert trips -- and the resolution note the reader needs to turn the
+# variable into a path is present. The second term cannot be satisfied by the
+# note itself, which ends at `assets/change-brief` with no `/BLOCKS.md`.
+for pf in "$SP" "$PP"; do
+  chk "$(basename "$pf") reaches the catalog through \$BRIEF_DIR" \
+    "$(grep -cF '`$BRIEF_DIR/BLOCKS.md`' "$pf")$(grep -cF 'assets/change-brief/BLOCKS.md' "$pf")$(flat "$pf" | grep -cF 'set in the Bash tool environment')" "101"
+done
 grep -q 'acyclic' "$PP" && ok "plan prompt checks acyclicity" || no "plan prompt checks acyclicity" "missing"
 grep -q 'Browser-Walk Inventory' "$PP" && ok "plan prompt checks the inventory" \
   || no "plan prompt checks the inventory" "missing"
@@ -4885,14 +4995,30 @@ grep -q 'Browser-Walk Inventory' "$PP" && ok "plan prompt checks the inventory" 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: six FAILs, exit 1.
+Expected: eight FAILs, exit 1.
 
 - [ ] **Step 3a: Extend the spec reviewer prompt**
 
 In `skills/brainstorming/spec-document-reviewer-prompt.md`, add a row to the What to Check table:
 
 ```markdown
-    | Block coverage | Spec blocks 1-23 from `assets/change-brief/BLOCKS.md` — see below |
+    | Block coverage | Spec blocks 1-23 from `$BRIEF_DIR/BLOCKS.md` — see below |
+```
+
+These files ship in the plugin and are read by agents working in *consumer*
+projects, where a repo-relative `assets/change-brief/BLOCKS.md` does not exist.
+Every other reference in this feature resolves the catalog through
+`$BRIEF_DIR`, so these do too. Add the resolution note above the fence, outside
+the prompt, since it is the dispatcher who substitutes:
+
+```markdown
+**Before dispatching:** substitute the bracketed paths, and resolve `$BRIEF_DIR`
+to an absolute path in the prompt you send. The reviewer works in the consumer
+project, where a repo-relative `assets/change-brief` does not exist. `$BRIEF_DIR`
+is `<announced skill base directory>/../../assets/change-brief`;
+`${CLAUDE_PLUGIN_ROOT}` is **not** set in the Bash tool environment. If the
+catalog cannot be found, say so in the dispatch and have the reviewer grade the
+rest — a missing catalog must never block the review gate.
 ```
 
 Add before `## Calibration`:
@@ -4931,8 +5057,10 @@ Replace the Output Format block with:
 In `skills/writing-plans/plan-document-reviewer-prompt.md`, add a row to the What to Check table:
 
 ```markdown
-    | Plan blocks | Blocks 24-27 from `assets/change-brief/BLOCKS.md` — see below |
+    | Plan blocks | Blocks 24-27 from `$BRIEF_DIR/BLOCKS.md` — see below |
 ```
+
+The same resolution note goes above this fence too, with the same wording.
 
 Add before `## Calibration`:
 
@@ -4969,7 +5097,7 @@ Replace the Output Format block with:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bash assets/change-brief/tests/render_test.sh`
-Expected: six PASSes, exit 0.
+Expected: eight PASSes, exit 0.
 
 - [ ] **Step 5: Commit**
 

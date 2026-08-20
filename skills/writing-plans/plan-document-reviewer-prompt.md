@@ -6,6 +6,14 @@ Use this template when dispatching a plan document reviewer subagent.
 
 **Dispatch after:** The complete plan is written.
 
+**Before dispatching:** substitute the bracketed paths, and resolve `$BRIEF_DIR`
+to an absolute path in the prompt you send. The reviewer works in the consumer
+project, where a repo-relative `assets/change-brief` does not exist. `$BRIEF_DIR`
+is `<announced skill base directory>/../../assets/change-brief`;
+`${CLAUDE_PLUGIN_ROOT}` is **not** set in the Bash tool environment. If the
+catalog cannot be found, say so in the dispatch and have the reviewer grade the
+rest — a missing catalog must never block the review gate.
+
 ```
 Task tool (general-purpose):
   description: "Review plan document"
@@ -23,7 +31,7 @@ Task tool (general-purpose):
     | Spec Alignment | Plan covers spec requirements, no major scope creep |
     | Task Decomposition | Tasks have clear boundaries, steps are actionable |
     | Buildability | Could an engineer follow this plan without getting stuck? |
-    | Plan blocks | Blocks 24-27 from `assets/change-brief/BLOCKS.md` — see below |
+    | Plan blocks | Blocks 24-27 from `$BRIEF_DIR/BLOCKS.md` — see below |
 
     ## Plan Block Coverage
 

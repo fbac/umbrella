@@ -7,3 +7,8 @@ assets/change-brief/render.sh text eol=lf
 assets/change-brief/scan.awk text eol=lf
 assets/change-brief/tests/render_test.sh text eol=lf
 assets/change-brief/tests/fixtures/*.md text eol=lf
+# The same guard, applied to the real render inputs. `render.sh` rejects a CRLF
+# spec or plan by name and exits 1, so an unpinned `docs/` markdown file is the
+# one way a clean checkout still cannot render its own brief.
+docs/specs/*.md text eol=lf
+docs/plans/*.md text eol=lf
