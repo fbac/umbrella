@@ -9,7 +9,7 @@
     {
       "name": "umbrella",
       "description": "Standalone workflow + skills library: TDD, debugging, planning, brainstorming, review-lens. Score != ship.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "source": "./",
       "author": {
         "name": "Borja Aranda",
