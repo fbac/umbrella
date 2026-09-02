@@ -183,12 +183,26 @@ it and continue on the markdown. A missing renderer must never block the gate.**
 
 Executing subagents read `docs/plans/*.md`. They never read `docs/briefs/*.html`.
 
+### Opening the Brief
+
+**Every render ends with an open offer.** A path in a transcript is not a click,
+and a brief nobody opens is a review gate that did not happen. In the same
+message that reports the render — the first pass **and every re-render after a
+change round** — offer to open it and give the manual command:
+
+> "Rendered to `<brief path>`. **Want me to open it?** Or open it yourself:
+> `open <brief path>` on macOS, `xdg-open <brief path>` on Linux,
+> `start <brief path>` on Windows, or paste `file://<absolute brief path>` into
+> your browser."
+
+Run the platform opener only after the user says yes. Never open it unasked.
+
 ## User Review Gate
 
 After the brief renders, ask the user to review the plan before offering any
 execution option:
 
-> "Plan written and saved to `<path>`, and rendered to `<brief path>`. Open the brief in your browser and review it — the index on the left navigates the tasks, and the dependency graph shows the order they unlock in. **Changing the plan still costs only a plan rewrite right now**; once execution starts the same change costs code. Let me know if you want changes before we pick an execution mode."
+> "Plan written and saved to `<path>`, and rendered to `<brief path>`. **Want me to open it?** Or open it yourself: `open <brief path>` on macOS, `xdg-open <brief path>` on Linux, `start <brief path>` on Windows, or paste `file://<absolute brief path>` into your browser. Open the brief in your browser and review it — the index on the left navigates the tasks, and the dependency graph shows the order they unlock in. **Changing the plan still costs only a plan rewrite right now**; once execution starts the same change costs code. Let me know if you want changes before we pick an execution mode."
 
 Wait for the user's response. If they request changes, make them and re-run the
 plan review loop. Only proceed to the Execution Handoff once the user approves.

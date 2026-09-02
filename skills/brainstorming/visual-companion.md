@@ -41,7 +41,10 @@ scripts/start-server.sh --project-dir /path/to/project
 #           "state_dir":"/path/to/project/.umbrella/brainstorm/12345-1706000000/state"}
 ```
 
-Save `screen_dir` and `state_dir` from the response. Tell user to open the URL.
+Save `screen_dir` and `state_dir` from the response. Then offer to open the URL
+and give the manual command: "**Want me to open it?** Or open it yourself:
+`open <url>` on macOS, `xdg-open <url>` on Linux, `start <url>` on Windows, or
+paste `<url>` into your browser." Run the opener only after the user says yes.
 
 **Finding connection info:** The server writes its startup JSON to `$STATE_DIR/server-info`. If you launched the server in the background and didn't capture stdout, read that file to get the URL and port. When using `--project-dir`, check `<project>/.umbrella/brainstorm/` for the session directory.
 
@@ -101,7 +104,10 @@ Use `--url-host` to control what hostname is printed in the returned URL JSON.
    - Server automatically serves the newest file
 
 2. **Tell user what to expect and end your turn:**
-   - Remind them of the URL (every step, not just first)
+   - Remind them of the URL (every step, not just first), and offer to open it
+     every step too — each screen is a new HTML file, so the offer repeats:
+     "**Want me to open it?** Or: `open <url>` (macOS), `xdg-open <url>` (Linux),
+     `start <url>` (Windows)." Open it only after the user says yes.
    - Give a brief text summary of what's on screen (e.g., "Showing 3 layout options for the homepage")
    - Ask them to respond in the terminal: "Take a look and let me know what you think. Click to select an option if you'd like."
 

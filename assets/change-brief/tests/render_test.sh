@@ -1667,6 +1667,33 @@ chk "degradation rule present" \
   "$(grep -cF 'a missing renderer must never block the review gate' "$BS" 2>/dev/null)$(grep -cF 'never block the review gate.**' "$BS" 2>/dev/null)" "11"
 grep -q 'never read' "$BS" && ok "executing subagents rule present" \
   || no "executing subagents rule present" "missing"
+# A rendered brief the user never opens is a review gate that did not happen,
+# and the only thing that used to reach them was a relative path in a
+# transcript. `grep -q 'Want me to open it'` is carried by the gate quote
+# alone: the whole `### Opening the Brief` block deleted -- the rule that makes
+# the offer repeat on every re-render -- still reads green on that one quote.
+# Three terms: the block under its own heading inside `## Change Brief Assets`,
+# the manual command it exists to carry, and the offer inside the gate message
+# that is actually sent to the user.
+chk "the spec render is followed by an open offer" \
+  "$(sect "$BS" '## Change Brief Assets' | grep -cE '^### Opening the Brief$')$(sect "$BS" '## Change Brief Assets' | grep -cF 'xdg-open <brief path>')$(sed -n '/^\*\*User Review Gate:\*\*$/,/^\*\*Implementation:\*\*$/p' "$BS" | grep -cF 'Want me to open it?')" "111"
+# The offer is worth nothing if it fires once and the change round that follows
+# re-renders in silence, and worth less than nothing if the agent reads "offer"
+# as "open". Both halves are the reason the block exists, so both are pinned;
+# flat() because both sentences wrap.
+chk "  the offer repeats on re-render, and never opens unasked" \
+  "$(flat "$BS" | grep -cF 'and every re-render after a')$(flat "$BS" | grep -cF 'Never open it unasked')" "11"
+# The numbered list is what an agent skims; the prose section below is what it
+# reads only after the list sends it there. Step 10 said "point the user at" and
+# nothing more, which is exactly the transcript-path behaviour being replaced.
+chk "  step 10 carries the offer, not just the prose section" \
+  "$(grep -cE '^10\. \*\*User reviews the rendered brief\*\* — ' "$BS" 2>/dev/null)$(sed -n '/^10\. \*\*User reviews/p' "$BS" | grep -cF 'offer to open it')" "11"
+# Every screen in the visual companion loop is a fresh HTML file, so the offer
+# repeats per screen there rather than once per gate. Two carriers, and either
+# alone left the other silent: the server-start line and the loop step.
+VC="$R/skills/brainstorming/visual-companion.md"
+chk "visual companion offers to open each screen it writes" \
+  "$(flat "$VC" | grep -cF 'Then offer to open the URL')$(sed -n '/^2\. \*\*Tell user what to expect/,/^3\. \*\*On your next turn/p' "$VC" | grep -cF 'Want me to open it?')" "11"
 
 echo "== writing-plans skill hooks =="
 WP="$R/skills/writing-plans/SKILL.md"
@@ -1709,6 +1736,14 @@ chk "renders the brief after the plan gate" \
   "$(grep -cE '^## Render the Change Brief$' "$WP" 2>/dev/null)$(grep -cF '"$BRIEF_DIR/render.sh" docs/specs/<name>.md docs/plans/<name>.md -o docs/briefs/<name>.html' "$WP" 2>/dev/null)" "11"
 grep -q 'never read' "$WP" && ok "executing subagents rule present" \
   || no "executing subagents rule present" "missing"
+# Same rule on the plan side, and the plan brief is the one an agent is most
+# tempted to skip past on its way to the Execution Handoff. Scoped to the render
+# section and to the gate, so an offer that lands anywhere else -- below the
+# handoff, where the execution question has already been asked -- reads 110.
+chk "the plan render is followed by an open offer" \
+  "$(sect "$WP" '## Render the Change Brief' | grep -cE '^### Opening the Brief$')$(sect "$WP" '## Render the Change Brief' | grep -cF 'xdg-open <brief path>')$(sed -n '/^## User Review Gate$/,/^## Execution Handoff$/p' "$WP" | grep -cF 'Want me to open it?')" "111"
+chk "  the offer repeats on re-render, and never opens unasked" \
+  "$(flat "$WP" | grep -cF 'and every re-render after a')$(flat "$WP" | grep -cF 'Never open it unasked')" "11"
 grep -q 'referenced task exist' "$WP" && ok "self-review checks dangling refs" \
   || no "self-review checks dangling refs" "missing"
 # The second render is the entire reason this feature renders twice, and the

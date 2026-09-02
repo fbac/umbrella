@@ -33,7 +33,7 @@ You MUST create a task for each of these items and complete them in order:
 8. **Spec self-review** — inline check for placeholders, contradictions, ambiguity, scope, AND the completeness/composition checks (see below)
 9. **Adversarial spec review** — dispatch a fresh subagent reviewer (see `skills/brainstorming/spec-document-reviewer-prompt.md`); iterate the spec until it scores **>90** before proceeding
 9b. **Render the change brief** — `"$BRIEF_DIR/render.sh" <spec> -o docs/briefs/<name>.html` with no plan argument. If the assets cannot be found, say so and continue on the markdown — a missing renderer must never block the review gate
-10. **User reviews the rendered brief** — point the user at `docs/briefs/<name>.html` and state plainly that altering the feature is free at this point
+10. **User reviews the rendered brief** — point the user at `docs/briefs/<name>.html`, **offer to open it** and give the manual open command (see Opening the Brief below), and state plainly that altering the feature is free at this point
 11. **Transition to implementation** — invoke `umbrella:writing-plans` to create the implementation plan
 
 ## Process Flow
@@ -161,7 +161,7 @@ Dispatch a fresh subagent to adversarially review the spec using `skills/brainst
 **User Review Gate:**
 After the review gate passes, ask the user to review the written spec before proceeding:
 
-> "Spec written and committed to `<path>`, and rendered to `<brief path>`. Open the brief in your browser and review it — the index on the left navigates sections, and diagrams are rendered inline. **Changing the shape of this feature costs nothing right now**; after the plan is written the same change costs a plan rewrite. Let me know if you want changes before we start the implementation plan."
+> "Spec written and committed to `<path>`, and rendered to `<brief path>`. **Want me to open it?** Or open it yourself: `open <brief path>` on macOS, `xdg-open <brief path>` on Linux, `start <brief path>` on Windows, or paste `file://<absolute brief path>` into your browser. Open the brief in your browser and review it — the index on the left navigates sections, and diagrams are rendered inline. **Changing the shape of this feature costs nothing right now**; after the plan is written the same change costs a plan rewrite. Let me know if you want changes before we start the implementation plan."
 
 Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
 
@@ -184,6 +184,20 @@ never block the review gate.**
 `.gitignore`. If it is absent, add it.
 
 Executing subagents read `docs/plans/*.md`. They never read `docs/briefs/*.html`.
+
+### Opening the Brief
+
+**Every render ends with an open offer.** A path in a transcript is not a click,
+and a brief nobody opens is a review gate that did not happen. In the same
+message that reports the render — the first pass **and every re-render after a
+change round** — offer to open it and give the manual command:
+
+> "Rendered to `<brief path>`. **Want me to open it?** Or open it yourself:
+> `open <brief path>` on macOS, `xdg-open <brief path>` on Linux,
+> `start <brief path>` on Windows, or paste `file://<absolute brief path>` into
+> your browser."
+
+Run the platform opener only after the user says yes. Never open it unasked.
 
 ## Key Principles
 
