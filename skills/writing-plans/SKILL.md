@@ -69,6 +69,12 @@ and guide updates, and exclude the spec and plan documents the change is built
 from. Count doc-comments and docstrings that live inside source files, since a
 reviewer reads those alongside the code.
 
+This exclusion is for prose *about* a change, not prose that *is* the change.
+When the deliverable itself is written text — a skills repository, a
+documentation site, prompt or policy files — that text is the code for budget
+purposes and counts in full. The question to ask is whether a reviewer has to
+read it closely to judge the change, not whether it happens to be markdown.
+
 **Estimating before the code exists.** The plan-time number is a guess and will
 be wrong. Estimate from the file structure you already mapped: count the files
 you will create or substantially rewrite, and size each against comparable files
