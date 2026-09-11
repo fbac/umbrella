@@ -273,8 +273,10 @@ stack it needs four things the current skill has no answer for.
 
 **How it discovers the segments.** It reads the `## PR Segmentation` table from
 the plan referenced by the branch's work. If no plan is available, or the table
-declares one segment, the skill behaves exactly as it does today — one branch,
-one pull request. Segmentation is opt-in by the presence of a multi-row table.
+declares one segment, the skill's branch and pull-request handling is exactly
+what it is today — one branch, one pull request. Segmentation is opt-in by the
+presence of a multi-row table. **The finish-time backstop still applies in that
+case**; only stacking is opt-in, never the size warning.
 
 **When the pull requests open.** All of them in one pass, at the end, after the
 full test suite passes on the tip segment. Opening a segment's pull request as
@@ -299,6 +301,23 @@ and 4 operate on **the whole stack**, not one branch:
 | 2. Create PR | The loop above. Worktree preserved. |
 | 3. Keep as-is | Report every segment branch by name, so none is forgotten. |
 | 4. Discard | Typed confirmation lists **all** segment branches; deletes them in reverse order, M to 1. |
+
+### Failure modes
+
+A stack is several remote operations that can fail halfway, leaving state a
+single-branch skill never had to describe.
+
+| Failure | Behavior |
+|---|---|
+| `gh pr create` fails on segment K of M | Stop. Do not attempt K+1 — its `--base` branch has no pull request and the stack would read out of order. Report which segments have open pull requests, which do not, and the exact command to resume at K. |
+| `git push` fails on segment K | Same: stop, report, resume at K. Segment K+1's base does not exist on the remote, so continuing cannot succeed. |
+| Merge fails on segment K (Option 1) | Stop and report which segment broke, leaving segments 1..K-1 merged. Already specified in the options table. |
+| No plan file found | Treat as single-segment. One branch, one pull request, backstop still measured. |
+| Plan table names a branch that does not exist | Report the mismatch and stop before pushing anything. A missing segment branch means execution diverged from the plan, and guessing which branch was meant is worse than asking. |
+
+The stack is never rolled back automatically. Partial progress is reported, not
+undone — deleting remote branches or closing pull requests to "clean up" is the
+destructive path this design avoids everywhere else.
 
 ## Alternatives rejected
 
@@ -334,7 +353,7 @@ contradicting text as important as adding new text.
 |---|---|---|
 | `skills/test-driven-development/SKILL.md` | TDD discipline for all coding agents | Home of R1. Retarget Iron Law to behaviors, add trivial-code exemption, rewrite the verification checklist, add anti-goals |
 | `skills/writing-plans/SKILL.md` | Turns a spec into an executable plan | Home of R3. Add segmentation section, budget table, block 28 authoring rules, step-zero branch contract. Add R2 as an authoring constraint: code shown in plan steps carries no what-comments, since implementers copy it verbatim. Update "plan blocks 24-27" at line 23 to 24-28 |
-| `skills/finishing-a-development-branch/SKILL.md` | Only place that opens a PR | Home of R4. Replace body template, add stacked-PR loop with `--base`, add R3 finish-time backstop |
+| `skills/finishing-a-development-branch/SKILL.md` | Only place that opens a PR | Home of R4. Replace body template (`:132` is the only `## Test Plan`), add stacked-PR loop with `--base`, add R3 finish-time backstop and the failure-modes behavior. **Also update the three sections that restate per-option behavior and would otherwise contradict the new stack rules:** Quick Reference table (`:196`), Common Mistakes (`:203`), Red Flags (`:233`) |
 | `skills/subagent-driven-development/implementer-prompt.md` | Dispatches implementer subagents | Home of R2. Add comment rule; replace "Are tests comprehensive?" self-review line with the R1 test |
 | `skills/executing-plans/SKILL.md` | Inline execution path, reads no prompt templates | Reach point for R1, R2, and the segment-branch steps |
 | `skills/requesting-code-review/code-reviewer.md` | Used by code-quality and final reviewers | Rewrite contradicting text ("Edge cases covered?", the "18 tests, all edge cases" example). Add R1 and R2 review checks |
@@ -424,7 +443,14 @@ pointer nobody follows.
     agent on the segment branch: `git checkout -b <branch> <base>` for a branch
     that does not yet exist, and a plain `git checkout <branch>` for segment 1
     when the worktree branch already exists. A plan must never create a second
-    branch beside the worktree branch.
+    branch beside the worktree branch. All three workspace states
+    `using-git-worktrees` can leave are covered, so a plan author never infers
+    which arm applies: **on a branch** — plain checkout, that branch is segment
+    1's; **normal checkout with no feature branch** — segment 1 creates one from
+    the base branch; **detached HEAD, externally managed**
+    (`using-git-worktrees/SKILL.md:37`) — segment 1 creates its branch from the
+    current commit, and the existing detached-HEAD menu in
+    `finishing-a-development-branch` still applies.
 14. `BLOCKS.md` defines block 28 under "Plan blocks — always present".
 15. `plan-document-reviewer-prompt.md` grades block 28, and treats a plan whose
     estimate exceeds 800 lines while declaring one segment as a **blocking**
@@ -449,7 +475,10 @@ pointer nobody follows.
 21. For a multi-segment plan, Option 2 opens one pull request per segment, in
     segment order, all in one pass after tests pass on the tip segment, each
     with an `[N/M]` title prefix, `--base` pointing at the previous segment
-    branch, and a stack map line.
+    branch, and a stack map line. The loop implements the failure-modes table:
+    a push or `gh pr create` failure at segment K stops the loop, reports which
+    segments landed and which did not, and names the resume command. Nothing is
+    rolled back automatically.
 22. Options 1, 3, and 4 operate on the whole stack per the mechanics table:
     merge in order with tests between, report all branches, and discard all
     branches in reverse order behind one typed confirmation.
