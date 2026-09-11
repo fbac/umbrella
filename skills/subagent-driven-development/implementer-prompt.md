@@ -120,7 +120,8 @@ Task tool (general-purpose):
     - Did I follow TDD if required?
     - Does every behavior in the contract have a test?
     - Did I write any test for an input no real caller can produce? Delete it.
-    - Did I test a trivial passthrough, constant, or branchless accessor? Delete it.
+    - Did I test a trivial passthrough, a constant or configuration declaration,
+      or a branchless accessor? Delete it.
 
     If you find issues during self-review, fix them now before reporting.
 
