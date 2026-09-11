@@ -57,6 +57,21 @@ Task tool (general-purpose):
     recommendation: the gate is `>90`, so an advisory note would let the plan
     through and make the hard threshold meaningless. A plan between 400 and 800
     lines with a single segment and no stated justification is the same finding.
+    Any sentence naming why the work stays single counts as justification — you
+    are checking that the author made the decision deliberately, not grading how
+    good the reason is.
+
+    **When the plan says it cannot be split.** The author's rule is that
+    shippability outranks the budget: if no boundary leaves every segment
+    independently shippable, they must say so in the plan rather than ship a
+    broken segment or silently accept an oversized one. When a plan does exactly
+    that, still report `Issues Found` with a score not above 90 — the plan is
+    genuinely not ready — but say in your issue that this is a **decomposition
+    problem for a human to resolve**, not a defect the author can fix by
+    rewriting the plan. Otherwise the author and you deadlock: they followed
+    their rule, you enforce yours, and the plan can never pass. Do not treat the
+    claim as a free pass — it must name the specific boundary that fails and
+    why, or it is an unjustified oversized plan like any other.
 
     ## Calibration
 
