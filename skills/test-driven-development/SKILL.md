@@ -28,11 +28,49 @@ Write the test first. Watch it fail. Write minimal code to pass.
 
 Thinking "skip TDD just this once"? Stop. That's rationalization.
 
+## The Minimum Subset
+
+**The unit of testing is the behavior in the contract, not the function.** A
+contract is what the feature promises, what the bug report says is broken, or
+what the issue asks for.
+
+Write one test per behavior in that contract, plus one test per corner case a
+real caller can produce in production. Nothing else.
+
+**The reachability test.** A corner case earns a test only if you can name the
+caller and the input that reaches it. If you cannot, it is unreachable: the test
+asserts something no user will ever observe, while still breaking every time the
+code is refactored. Delete it.
+
+**Trivial-code exemption.** Production code may ship with no test when it is a
+pure passthrough, a constant or configuration declaration, or an accessor with
+no branching and no computation. This needs no partner permission. Everything
+else still needs a failing test first.
+
+This is narrower than "Configuration files" in the Exceptions list above. That
+entry is about a whole file of configuration as a kind of work, and skipping it
+is your partner's call. This exemption is about individual declarations sitting
+inside code that is otherwise under TDD — those you skip on your own judgement.
+
+**Anti-goals.** These are not goals and never were:
+
+- No coverage percentage is a target. Not 100%, not 80%.
+- A test per function is not a requirement.
+- A test that exists only to raise a number gets deleted, not kept.
+
+More tests is not better. A suite that is expensive to run and expensive to
+change, whose failures carry no signal about whether the feature works, is worse
+than a small suite that fails only when something real broke.
+
 ## The Iron Law
 
 ```
 NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 ```
+
+Read "production code" as **a behavior in the contract**, not "a function". A
+function that carries no contract behavior — see the trivial-code exemption
+above — is outside the Law, not an exception to it.
 
 Write code before the test? Delete it. Start over.
 
@@ -268,6 +306,9 @@ Tests-first force edge case discovery before implementing. Tests-after verify yo
 | "TDD will slow me down" | TDD faster than debugging. Pragmatic = test-first. |
 | "Manual test faster" | Manual doesn't prove edge cases. You'll re-test every change. |
 | "Existing code has no tests" | You're improving it. Add tests for existing code. |
+| "More coverage is safer" | Unreachable-input tests break on refactors and catch nothing. Cost without benefit. |
+| "I'll test every method to be thorough" | Thorough means every contract behavior, not every method. |
+| "This getter could break someday" | Name the caller and the input. Can't? Don't write it. |
 
 ## Red Flags - STOP and Start Over
 
@@ -328,14 +369,15 @@ Extract validation for multiple fields if needed.
 
 Before marking work complete:
 
-- [ ] Every new function/method has a test
+- [ ] Every behavior in the contract has a test
 - [ ] Watched each test fail before implementing
 - [ ] Each test failed for expected reason (feature missing, not typo)
 - [ ] Wrote minimal code to pass each test
 - [ ] All tests pass
 - [ ] Output pristine (no errors, warnings)
 - [ ] Tests use real code (mocks only if unavoidable)
-- [ ] Edge cases and errors covered
+- [ ] Production-reachable corner cases covered; unreachable ones deliberately not written
+- [ ] No test exists only to raise coverage
 
 Can't check all boxes? You skipped TDD. Start over.
 
@@ -368,4 +410,8 @@ Production code → test exists and failed first
 Otherwise → not TDD
 ```
 
-No exceptions without your human partner's permission.
+"Production code" means code carrying a behavior in the contract — see The
+Minimum Subset. Pure passthroughs, constants, configuration, and branchless accessors are
+outside this rule, not exceptions to it, and need no permission. For anything
+that does carry contract behavior, no exceptions without your human partner's
+permission.

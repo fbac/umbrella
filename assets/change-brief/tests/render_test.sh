@@ -1582,11 +1582,11 @@ flat(){ tr '\n' ' ' < "$1" | tr -s ' '; }
 # heading" tests the containment instead of assuming it.
 sect(){ awk -v h="$2" '$0==h{f=1;next} f&&/^## /{exit} f' "$1"; }
 [ -r "$B" ] && ok "BLOCKS.md present" || no "BLOCKS.md present" "missing"
-for n in $(seq 1 27); do
+for n in $(seq 1 28); do
   if grep -qE "^\| $n \|" "$B" 2>/dev/null; then ok "block $n catalogued"
   else no "block $n catalogued" "missing"; fi
 done
-chk "27 catalog rows" "$(grep -cE '^\| [0-9]+ \|' "$B" 2>/dev/null || echo 0)" "27"
+chk "28 catalog rows" "$(grep -cE '^\| [0-9]+ \|' "$B" 2>/dev/null || echo 0)" "28"
 # Both pins below were bare `grep -q` substrings until a mutant measured them.
 # `render.sh` occurs 5 times in the catalog and `Depends on:` 3 times, but only
 # 2 and 1 of those sit in the sections the labels name -- so a BLOCKS.md with

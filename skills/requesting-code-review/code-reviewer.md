@@ -52,9 +52,18 @@ Task tool (general-purpose):
 
     **Testing:**
     - Tests verify real behavior, not mocks?
-    - Edge cases covered?
+    - Does each test map to a behavior in the contract, or to a corner case a
+      real caller can produce? Flag tests that map to neither.
+    - Any test for a pure passthrough, a constant or configuration
+      declaration, or a branchless accessor? That is bloat — flag it for
+      deletion.
     - Integration tests where they matter?
     - All tests passing?
+
+    **Comments:**
+    - Does every comment explain *why*, not restate *what* the code does?
+      Flag any comment that paraphrases the line beneath it.
+    - Public API docstrings are exempt — do not flag those.
 
     **Production readiness:**
     - Migration strategy if schema changed?
@@ -134,7 +143,7 @@ Task tool (general-purpose):
 ```
 ### Strengths
 - Clean database schema with proper migrations (db.ts:15-42)
-- Comprehensive test coverage (18 tests, all edge cases)
+- Tests map cleanly to the four documented behaviors, with no filler (search.test.ts)
 - Good error handling with fallbacks (summarizer.ts:85-92)
 
 ### Issues

@@ -41,7 +41,7 @@ Task tool (general-purpose):
     adds a called interface with no block 18, or introduces states with no
     block 19.
 
-    You must not penalize the absence of plan blocks 24-27. A spec at the first
+    You must not penalize the absence of plan blocks 24-28. A spec at the first
     gate cannot contain them.
 
     ## Calibration

@@ -31,11 +31,11 @@ Task tool (general-purpose):
     | Spec Alignment | Plan covers spec requirements, no major scope creep |
     | Task Decomposition | Tasks have clear boundaries, steps are actionable |
     | Buildability | Could an engineer follow this plan without getting stuck? |
-    | Plan blocks | Blocks 24-27 from `$BRIEF_DIR/BLOCKS.md` — see below |
+    | Plan blocks | Blocks 24-28 from `$BRIEF_DIR/BLOCKS.md` — see below |
 
     ## Plan Block Coverage
 
-    Grade against **plan blocks 24-27 only**:
+    Grade against **plan blocks 24-28 only**:
 
     - **24** — every task has steps with `- [ ]` checkboxes.
     - **25** — every task carries a `static-verifiable` or `browser-walk-only` tag.
@@ -45,6 +45,41 @@ Task tool (general-purpose):
     - **27** — a `## Browser-Walk Inventory` exists with at least one numbered,
       plain-prose case per `browser-walk-only` task.
 
+    - **28** — a `## PR Segmentation` section exists with at least one row
+      carrying segment number, title, branch, base, task range, and an estimate
+      labelled as lines added. Check the base chain: segment N must base on
+      segment N-1's branch. Check that each segment's first task carries a step
+      zero putting the agent on that branch.
+
+    **Segmentation is a blocking finding.** If the plan's total estimate exceeds
+    800 lines added while declaring a single segment, report status
+    `Issues Found` with a score **not above 90**. Do not soften this to a
+    recommendation: the gate is `>90`, so an advisory note would let the plan
+    through and make the hard threshold meaningless. A plan between 400 and 800
+    lines with a single segment and no stated justification is the same finding.
+    Any sentence naming why the work stays single counts as justification — you
+    are checking that the author made the decision deliberately, not grading how
+    good the reason is.
+
+    **Grade every row, not just the total.** Segmenting must not switch the
+    budget off. Check each segment's own `Est. lines added` against the same
+    thresholds: any single row over 800 is the same blocking finding as an
+    oversized single-segment plan, and a row between 400 and 800 wants the same
+    one-sentence justification. A plan splitting 3,200 lines into rows of 3,000
+    and 200 has satisfied the letter of "segment it" and none of the point.
+
+    **When the plan says it cannot be split.** The author's rule is that
+    shippability outranks the budget: if no boundary leaves every segment
+    independently shippable, they must say so in the plan rather than ship a
+    broken segment or silently accept an oversized one. When a plan does exactly
+    that, still report `Issues Found` with a score not above 90 — the plan is
+    genuinely not ready — but say in your issue that this is a **decomposition
+    problem for a human to resolve**, not a defect the author can fix by
+    rewriting the plan. Otherwise the author and you deadlock: they followed
+    their rule, you enforce yours, and the plan can never pass. Do not treat the
+    claim as a free pass — it must name the specific boundary that fails and
+    why, or it is an unjustified oversized plan like any other.
+
     ## Calibration
 
     **Only flag issues that would cause real problems during implementation.**
@@ -53,6 +88,11 @@ Task tool (general-purpose):
 
     Approve unless there are serious gaps — missing requirements from the spec,
     contradictory steps, placeholder content, or tasks so vague they can't be acted on.
+
+    **Segmentation is the one exception to "approve unless serious."** It blocks
+    on size alone, even when every task is clear and an implementer would have no
+    trouble building from the plan. A plan nobody can review is a problem whether
+    or not it is a problem to implement.
 
     ## Output Format
 
