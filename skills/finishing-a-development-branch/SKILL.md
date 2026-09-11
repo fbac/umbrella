@@ -126,14 +126,35 @@ git push -u origin <feature-branch>
 
 # Create PR
 gh pr create --title "<title>" --body "$(cat <<'EOF'
-## Summary
-<2-3 bullets of what changed>
+## TL;DR
+<One or two sentences: what this PR does.>
 
-## Test Plan
-- [ ] <verification steps>
+## Why
+<What is broken, missing, or painful today, and what it costs to leave it.>
+
+## What
+<What was done about it. Bullets at file or component granularity.>
+
+## Follow-ups
+<Actions the reader must take outside this PR, e.g. "create SENTRY_DSN in staging".>
 EOF
 )"
 ```
+
+**Write it in simplified technical English, and respect the budgets** — they are
+what keep a PR body from becoming the wall of text nobody reads:
+
+| Section | Budget | Contains |
+|---|---|---|
+| TL;DR | at most 2 sentences | What this PR does. |
+| Why | at most 4 sentences or bullets | What is broken today. The reader is deciding whether to merge; this is the section that decides it. |
+| What | at most 8 bullets | What you did about it. |
+| Follow-ups | optional | Actions outside this PR. **Omit the whole section when empty** — never write "None". |
+
+There is no Test Plan section. Verification is already gated by
+`umbrella:verification-before-completion` before you reach this step, and a
+checklist of steps you already ran is exactly the padding these budgets exist to
+remove.
 
 **Do NOT clean up worktree** — user needs it alive to iterate on PR feedback.
 
