@@ -48,6 +48,58 @@ This structure informs the task decomposition. Each task should produce self-con
 - "Run the tests and make sure they pass" - step
 - "Commit" - step
 
+## PR Segmentation (Umbrella)
+
+**Why this exists:** nobody reviews 5,000 lines. Neither a human nor an agent
+holds that much in working memory, so review degrades to a rubber stamp exactly
+when the change is largest. Plan time is the only moment when splitting is free:
+once code exists on one branch, splitting means rewriting history across mixed
+commits.
+
+**The budget.** Count lines **added or modified** — the added column of
+`git diff --numstat`, not added minus deleted. A pure-deletion change is easy to
+review and must not be penalized; a rewrite that nets zero is not easy to review
+and must not be waved through. Count production and test code together. Exclude
+generated files, lockfiles, vendored dependencies, and `docs/briefs/`.
+
+| Estimate | Rule |
+|---|---|
+| Under 400 | Single segment. |
+| 400 to 800 | State in one sentence why it stays single, or segment it. |
+| Over 800 | MUST segment. This is blocking, not advisory. |
+
+**Block 28 — the table.** Every plan carries a `## PR Segmentation` section,
+whether it declares one segment or six:
+
+| Segment | Title | Branch | Base | Tasks | Est. lines added |
+|---|---|---|---|---|---|
+| 1 | Parser | `feat/x-parser` | `master` | 1-4 | 320 |
+| 2 | Wiring | `feat/x-wiring` | `feat/x-parser` | 5-7 | 280 |
+
+Label the estimate column with the budget metric. Never write "net".
+
+**Where segment 1's branch comes from.** Segment N bases on segment N-1's
+branch. Segment 1 depends on the workspace state `umbrella:using-git-worktrees`
+left behind:
+
+| Workspace state | Segment 1's branch | Step zero |
+|---|---|---|
+| On a branch (worktree or not) | That existing branch | `git checkout <branch>` |
+| Normal checkout, no feature branch | A new branch off the base | `git checkout -b <branch> <base>` |
+| Detached HEAD, externally managed | A new branch off the current commit | `git checkout -b <branch>` |
+
+**Never create a second branch beside an existing worktree branch.** That
+orphans the branch the worktree exists for.
+
+**Step zero.** Each segment's first task carries a step zero that puts the agent
+on the segment branch, using the command from the table above. Because the step
+lives in the plan, both execution paths get it without either needing to
+understand segmentation as a concept.
+
+**Each segment ships on its own.** At the end of a segment the repository is
+green and nothing is half-wired. If a boundary would leave broken state, the
+boundary is in the wrong place — move it, do not ship it.
+
 ## Walk-Tagging (Umbrella)
 
 **Why this exists:** Static review and unit/pgTAP tests cannot see render/redirect timing, composed-surface UX, or motion/feel. Those are confirmable ONLY in a running browser. If the plan doesn't name them, a feature gets called "done" on a green score while a real issue (e.g. a redirect flash, two redundant adjacent CTAs) ships unseen. Especially critical when Playwright can't run locally — then the human browser walk is the *only* net.
@@ -142,6 +194,12 @@ Every step must contain the actual content an engineer needs. These are **plan f
 - Steps that describe what to do without showing how (code blocks required for code steps)
 - References to types, functions, or methods not defined in any task
 
+**Code shown in plan steps carries no what-comments.** Implementers copy your
+code blocks verbatim, so a comment that paraphrases the line beneath it
+propagates into the codebase. Comments in plan code explain why, or they are
+absent. See umbrella:subagent-driven-development's implementer prompt for the
+full rule.
+
 ## Remember
 - Exact file paths always
 - Complete code in every step — if a step changes code, show the code
@@ -161,6 +219,11 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 **4. Walk-tag coverage (Umbrella):** Is every task tagged `static-verifiable` or `browser-walk-only`? Does every spec walk-only requirement map to a `browser-walk-only` task? Is the `## Browser-Walk Inventory` present with one plain-prose case per walk-only item?
 
 **5. Dependency declarations (Umbrella):** Does every task carry a `**Depends on:**` line as the first paragraph under its heading? Does every referenced task exist? Is the dependency set acyclic?
+
+**6. PR segmentation (Umbrella):** Is there a `## PR Segmentation` section? Does
+the total estimate respect the budget — segmented if over 800, justified if
+between 400 and 800? Does every segment after the first base on its predecessor?
+Does each segment's first task carry a step zero?
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
