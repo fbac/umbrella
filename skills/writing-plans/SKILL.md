@@ -60,7 +60,22 @@ commits.
 `git diff --numstat`, not added minus deleted. A pure-deletion change is easy to
 review and must not be penalized; a rewrite that nets zero is not easy to review
 and must not be waved through. Count production and test code together. Exclude
-generated files, lockfiles, vendored dependencies, and `docs/briefs/`.
+generated files (compiled output, minified bundles, code emitted by a schema or
+protobuf compiler), lockfiles, vendored dependencies, and `docs/briefs/`.
+
+**Documentation does not count toward the budget.** Prose is read differently
+from code and a large doc change does not degrade code review. Exclude README
+and guide updates, and exclude the spec and plan documents the change is built
+from. Count doc-comments and docstrings that live inside source files, since a
+reviewer reads those alongside the code.
+
+**Estimating before the code exists.** The plan-time number is a guess and will
+be wrong. Estimate from the file structure you already mapped: count the files
+you will create or substantially rewrite, and size each against comparable files
+already in the repository. Round up, and prefer segmenting when you land near a
+threshold — an unnecessary split costs a rebase, a missed one costs a review
+nobody can do. The finish-time measurement is the real check; this estimate only
+has to be good enough to pick the right shape.
 
 | Estimate | Rule |
 |---|---|
@@ -91,6 +106,10 @@ left behind:
 **Never create a second branch beside an existing worktree branch.** That
 orphans the branch the worktree exists for.
 
+**Segments 2 and later** are always a new branch off the previous segment's
+branch, so their step zero is always `git checkout -b <branch> <previous-segment-branch>`.
+The table above applies only to segment 1.
+
 **Step zero.** Each segment's first task carries a step zero that puts the agent
 on the segment branch, using the command from the table above. Because the step
 lives in the plan, both execution paths get it without either needing to
@@ -99,6 +118,13 @@ understand segmentation as a concept.
 **Each segment ships on its own.** At the end of a segment the repository is
 green and nothing is half-wired. If a boundary would leave broken state, the
 boundary is in the wrong place — move it, do not ship it.
+
+**Shippability outranks the budget.** If you cannot find boundaries that keep
+every segment independently shippable at or under the threshold, do not ship a
+broken segment to hit a number, and do not silently accept an oversized one.
+That combination means the work is not decomposed correctly — say so in the
+plan and raise it, because it is a spec problem surfacing late, not a
+segmentation exception.
 
 ## Walk-Tagging (Umbrella)
 
