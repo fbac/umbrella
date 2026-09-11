@@ -31,11 +31,11 @@ Task tool (general-purpose):
     | Spec Alignment | Plan covers spec requirements, no major scope creep |
     | Task Decomposition | Tasks have clear boundaries, steps are actionable |
     | Buildability | Could an engineer follow this plan without getting stuck? |
-    | Plan blocks | Blocks 24-27 from `$BRIEF_DIR/BLOCKS.md` — see below |
+    | Plan blocks | Blocks 24-28 from `$BRIEF_DIR/BLOCKS.md` — see below |
 
     ## Plan Block Coverage
 
-    Grade against **plan blocks 24-27 only**:
+    Grade against **plan blocks 24-28 only**:
 
     - **24** — every task has steps with `- [ ]` checkboxes.
     - **25** — every task carries a `static-verifiable` or `browser-walk-only` tag.

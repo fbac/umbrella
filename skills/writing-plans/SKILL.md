@@ -20,7 +20,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 **Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 - (User preferences for plan location override this default)
 
-**Author with:** the block catalog at `$BRIEF_DIR/BLOCKS.md` — plan blocks 24-27,
+**Author with:** the block catalog at `$BRIEF_DIR/BLOCKS.md` — plan blocks 24-28,
 and the `### Task <N>:` heading contract that every `**Depends on:**` edge resolves
 against. `$BRIEF_DIR` is defined under "Render the Change Brief" below.
 
