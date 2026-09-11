@@ -9,7 +9,7 @@ description: Use when implementation is complete, all tests pass, and you need t
 
 Guide completion of development work by presenting clear options and handling chosen workflow.
 
-**Core principle:** Verify tests → Detect environment → Present options → Execute choice → Clean up.
+**Core principle:** Verify tests → Measure diff → Detect environment → Present options → Execute choice → Clean up.
 
 **Announce at start:** "I'm using the finishing-a-development-branch skill to complete this work."
 
@@ -271,8 +271,14 @@ finish puts a reviewer in front of code that later segments can still change.
 pull request before segment N-1's branch exists on the remote fails, so order is
 correctness, not preference.
 
-**For Option 2 (Create PR)**, push and open the segments like this. The other
-three options are covered by the table further down.
+**Option numbers below are the standard 4-option menu.** On a detached HEAD the
+menu is the reduced 3-option one, where creating a pull request is option **1**,
+not 2 — match on the option's name, never its number. Everything in this section
+otherwise applies unchanged there; a detached-HEAD workspace can carry a stack,
+it just has no local-merge option and no cleanup.
+
+**To create the pull requests**, push and open the segments like this. The other
+options are covered by the table further down.
 
 ```bash
 # M is the number of rows in the plan's ## PR Segmentation table.
@@ -334,7 +340,7 @@ Segment 4 is untouched and still needs opening after 3 lands.
 **Never roll back automatically.** Report partial progress; do not delete remote
 branches or close pull requests to "clean up".
 
-**Options 1, 3 and 4 act on the whole stack:**
+**Every option acts on the whole stack, not one branch:**
 
 | Option | Stack behavior |
 |---|---|
