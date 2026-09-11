@@ -136,7 +136,7 @@ gh pr create --title "<title>" --body "$(cat <<'EOF'
 <What was done about it. Bullets at file or component granularity.>
 
 ## Follow-ups
-<Actions the reader must take outside this PR, e.g. "create SENTRY_DSN in staging".>
+<Actions the reader must take outside this PR, e.g. "create SENTRY_DSN in staging". If there are none, delete this section and its heading — do not write "None".>
 EOF
 )"
 ```
@@ -155,6 +155,15 @@ There is no Test Plan section. Verification is already gated by
 `umbrella:verification-before-completion` before you reach this step, and a
 checklist of steps you already ran is exactly the padding these budgets exist to
 remove.
+
+This is a deliberate trade, not a free win. A Test Plan served a second reader:
+it showed a *reviewer* how the work was checked, not just that it was. Dropping
+it means the reviewer trusts the process instead of reading the evidence. That
+is the right trade here because the process is enforced and the evidence was
+almost always a restatement of the suite that CI runs anyway — but when a change
+is verified some way a reviewer genuinely cannot reproduce or infer (a manual
+device test, a one-off migration rehearsal, a load run), say so in **What**. The
+budget is not a reason to drop something the reviewer actually needs.
 
 **Do NOT clean up worktree** — user needs it alive to iterate on PR feedback.
 
