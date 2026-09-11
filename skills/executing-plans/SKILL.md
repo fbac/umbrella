@@ -29,6 +29,31 @@ For each task:
 3. Run verifications as specified
 4. Mark as completed
 
+### Step 2b: Discipline Rules While You Work
+
+You are the coding agent here. These rules apply to you exactly as they apply to
+an implementer subagent.
+
+**Tests — minimum subset.** The unit of testing is the behavior in the contract,
+not the function. Write one test per behavior the plan's task describes, plus
+one per corner case a real caller can produce in production. If you cannot name
+the caller and the input that reaches a corner case, do not write the test. Pure
+passthroughs, constants, configuration, and branchless accessors need no test at
+all. No coverage percentage is a target. See umbrella:test-driven-development
+for the full rule.
+
+**Comments — why, not what.** Code says what it does; comments say why it does
+it that way. A comment that paraphrases the line beneath it is forbidden. Write
+one for a non-obvious constraint, an external workaround, a rejected
+alternative, a surprising ordering requirement, or a business rule the code
+cannot show. Public API docstrings are exempt. The rule covers new code plus
+comments on lines you are already editing — do not sweep the repository.
+
+**Segment branches.** A plan may contain a `## PR Segmentation` table and a step
+zero on a task that checks out a branch. Run those steps exactly as written. Do
+not create a branch the plan did not name, and do not skip a checkout because
+you are "already on a branch".
+
 ### Step 3: Complete Development
 
 After all tasks complete and verified:
