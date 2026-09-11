@@ -43,10 +43,15 @@ all. No coverage percentage is a target. See umbrella:test-driven-development
 for the full rule.
 
 **Comments — why, not what.** Code says what it does; comments say why it does
-it that way. A comment that paraphrases the line beneath it is forbidden. Write
-one for a non-obvious constraint, an external workaround, a rejected
-alternative, a surprising ordering requirement, or a business rule the code
-cannot show. Public API docstrings are exempt. The rule covers new code plus
+it that way. A comment that paraphrases the line beneath it is forbidden — it
+goes stale on the first edit, and a stale comment is worse than none because a
+reader trusts it and is wrong. Write one for a non-obvious constraint, a
+workaround for external behavior (link the issue), an alternative you
+deliberately rejected and why, an ordering requirement that looks arbitrary, or
+a business rule not derivable from the code. Never write narration of the next
+line, section-divider banners, changelog comments, or commented-out code.
+Public API docstrings are exempt — they are contracts for callers who will
+never read the body, not narration of it. The rule covers new code plus
 comments on lines you are already editing — do not sweep the repository.
 
 **Segment branches.** A plan may contain a `## PR Segmentation` table and a step
