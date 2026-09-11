@@ -40,7 +40,7 @@ Stop. Don't proceed to Step 2.
 ### Step 1b: Measure the Diff
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null)
 git diff --numstat "$BASE"..HEAD \
   | grep -vE '(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|go\.sum|Cargo\.lock|^docs/briefs/|/vendor/)' \
   | awk '{ added += $1 } END { print added+0 }'
@@ -80,6 +80,17 @@ size warning never is.
 Do not rewrite history on your own to split the branch. Propose boundaries and
 let your partner choose.
 
+**Where each answer leads.** This menu is not the option menu — Step 4's four
+options still follow.
+
+- **Chose 1 (one PR anyway):** continue to Step 2. Say nothing further about
+  size; they decided.
+- **Chose 2 (split):** propose boundaries as a list of segments, each with the
+  commits or files it would carry and why it is independently shippable. Splitting
+  an existing branch means rewriting history, so stop there and hand the proposal
+  over — do not start rebasing. When they have split it, resume at Step 1b to
+  re-measure.
+
 ### Step 2: Detect Environment
 
 **Determine workspace state before presenting options:**
@@ -104,7 +115,11 @@ This determines which menu to show and how cleanup works:
 git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null
 ```
 
-Or ask: "This branch split from main - is that correct?"
+**Reuse `BASE` from Step 1b** — it is the same value, computed by the same
+command in the same branch order. Do not recompute it a second way. If you ask
+your partner instead ("This branch split from main - is that correct?") and they
+name a different branch, the Step 1b measurement was against the wrong base:
+re-run it before relying on the number.
 
 ### Step 4: Present Options
 
@@ -256,8 +271,14 @@ finish puts a reviewer in front of code that later segments can still change.
 pull request before segment N-1's branch exists on the remote fails, so order is
 correctness, not preference.
 
+**For Option 2 (Create PR)**, push and open the segments like this. The other
+three options are covered by the table further down.
+
 ```bash
-# For each segment in order 1..M:
+# M is the number of rows in the plan's ## PR Segmentation table.
+# For row N from 1 to M, read its Branch and Title columns, then:
+#   --base is the repository base branch when N is 1,
+#   and row N-1's Branch for every later segment.
 git push -u origin <segment-branch>
 gh pr create \
   --base <previous-segment-branch> \
@@ -273,11 +294,34 @@ gh pr create \
 
 ## What
 <What this segment changed.>
+
+## Follow-ups
+<Actions the reader must take outside this PR. If there are none, delete this section and its heading — do not write "None".>
 EOF
 )"
 ```
 
-Segment 1 uses the repository base branch for `--base`.
+The **Stack:** line lists every segment, not three — write one entry per row in
+the table, in order, and mark the one you are opening. For a two-segment stack
+opening the second, it reads:
+
+```
+**Stack:** 1. Parser · 2. Wiring  ← you are here: 2
+```
+
+**Resuming after a failure.** The resume command is the same push-and-create
+pair for the segment that failed, with the bases it would have had. If segment 3
+of 4 fails, report it like this:
+
+```
+Segments 1-2 opened. Segment 3 failed: <the error>.
+
+To resume:
+  git push -u origin feat/x-api
+  gh pr create --base feat/x-storage --title "[3/4] API" --body "..."
+
+Segment 4 is untouched and still needs opening after 3 lands.
+```
 
 **When something fails mid-stack:**
 
