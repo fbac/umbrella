@@ -52,7 +52,8 @@ a business rule not derivable from the code. Never write narration of the next
 line, section-divider banners, changelog comments, or commented-out code.
 Public API docstrings are exempt — they are contracts for callers who will
 never read the body, not narration of it. The rule covers new code plus
-comments on lines you are already editing — do not sweep the repository.
+comments on lines you are already editing — rewrite those to a why, or delete
+them. Do not sweep the repository for comments to fix; that is not your task.
 
 **Segment branches.** A plan may contain a `## PR Segmentation` table and a step
 zero on a task that checks out a branch. Run those steps exactly as written. Do
