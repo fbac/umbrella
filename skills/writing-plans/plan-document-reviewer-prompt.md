@@ -45,6 +45,19 @@ Task tool (general-purpose):
     - **27** — a `## Browser-Walk Inventory` exists with at least one numbered,
       plain-prose case per `browser-walk-only` task.
 
+    - **28** — a `## PR Segmentation` section exists with at least one row
+      carrying segment number, title, branch, base, task range, and an estimate
+      labelled as lines added. Check the base chain: segment N must base on
+      segment N-1's branch. Check that each segment's first task carries a step
+      zero putting the agent on that branch.
+
+    **Segmentation is a blocking finding.** If the plan's total estimate exceeds
+    800 lines added while declaring a single segment, report status
+    `Issues Found` with a score **not above 90**. Do not soften this to a
+    recommendation: the gate is `>90`, so an advisory note would let the plan
+    through and make the hard threshold meaningless. A plan between 400 and 800
+    lines with a single segment and no stated justification is the same finding.
+
     ## Calibration
 
     **Only flag issues that would cause real problems during implementation.**
