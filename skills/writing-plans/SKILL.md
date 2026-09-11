@@ -111,7 +111,8 @@ branch, so their step zero is always `git checkout -b <branch> <previous-segment
 The table above applies only to segment 1.
 
 **Step zero.** Each segment's first task carries a step zero that puts the agent
-on the segment branch, using the command from the table above. Because the step
+on the segment branch — the table above for segment 1, the previous-segment
+command for segments 2 and later. Because the step
 lives in the plan, both execution paths get it without either needing to
 understand segmentation as a concept.
 
