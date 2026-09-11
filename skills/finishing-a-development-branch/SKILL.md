@@ -49,6 +49,16 @@ git diff --numstat "$BASE"..HEAD \
 That number is lines added or modified, with generated files, lockfiles,
 vendored dependencies and `docs/briefs/` excluded.
 
+**Read it as an upper bound, then adjust.** The grep cannot know what kind of
+repository this is, and the plan-time budget in `umbrella:writing-plans`
+excludes documentation — READMEs, guides, and the spec and plan documents —
+*unless* prose is the deliverable, as in a skills repository or a docs site. No
+single pattern gets both cases right, so the judgement stays here: if a large
+share of this number is documentation and documentation is not what this
+repository ships, subtract it before comparing against the budget, and say so
+when you report. A warning that is obviously about README churn teaches the
+reader to ignore the next one.
+
 **If it exceeds 800 and this is single-segment work, stop and report before
 opening anything:**
 
