@@ -54,6 +54,31 @@ Task tool (general-purpose):
     - In existing codebases, follow established patterns. Improve code you're touching
       the way a good developer would, but don't restructure things outside your task.
 
+    ## Comments
+
+    Code says what it does. Comments say **why** it does it that way. A comment
+    that paraphrases the code beneath it is forbidden — it goes stale on the
+    first edit, and a stale comment is worse than none because a reader trusts
+    it and is wrong.
+
+    Write a comment when a reader who knows the language would still ask *why
+    like this?*:
+    - a non-obvious constraint
+    - a workaround for external behavior (link the issue)
+    - an alternative you deliberately rejected, and why
+    - an ordering requirement that looks arbitrary
+    - a business rule not derivable from the code
+
+    Never write: narration of the next line, section-divider banners, changelog
+    comments, or commented-out code.
+
+    **Exempt:** public API docstrings. They are contracts for callers who will
+    never read the body, not narration of it.
+
+    **Scope:** new code you write, plus any comment sitting on a line you are
+    already editing — rewrite it to a why, or delete it. Do not sweep the
+    repository for comments to fix; that is not your task.
+
     ## When You're in Over Your Head
 
     It is always OK to stop and say "this is too hard for me." Bad work is worse than
@@ -93,7 +118,9 @@ Task tool (general-purpose):
     **Testing:**
     - Do tests actually verify behavior (not just mock behavior)?
     - Did I follow TDD if required?
-    - Are tests comprehensive?
+    - Does every behavior in the contract have a test?
+    - Did I write any test for an input no real caller can produce? Delete it.
+    - Did I test a trivial passthrough, constant, or branchless accessor? Delete it.
 
     If you find issues during self-review, fix them now before reporting.
 
