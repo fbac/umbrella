@@ -97,9 +97,17 @@ flowchart TD
 
 ## Design
 
-Each rule gets one **home** — the file that states it in full — and a set of
-**reach points**, short pointers in the files whose agents must obey it. Reach
-points do not restate the rule; they name it and point at the home.
+Each rule gets one **home** — the file that states it in full and owns its
+wording — and a set of **reach points** in the other files whose agents must
+obey it.
+
+**Reach points restate the rule, they do not link to it.** This duplicates text
+on purpose. An agent acts on what is in its context window, and the two
+execution paths never load each other's files, so a pointer from
+`executing-plans` to `implementer-prompt.md` reaches nothing. The home is where
+the rule is maintained; the reach point is a short restatement of the operative
+sentences, not the full rationale. This is the same reasoning that rejects a
+central `RULES.md`.
 
 ```mermaid
 flowchart LR
@@ -188,29 +196,48 @@ generated files, lockfiles, vendored dependencies, and `docs/briefs/`.
 **Plan block 28.** Every plan carries a `## PR Segmentation` section, whether it
 declares one segment or six:
 
-| Segment | Title | Branch | Base | Tasks | Est. net LoC |
+| Segment | Title | Branch | Base | Tasks | Est. lines added |
 |---|---|---|---|---|---|
 | 1 | Parser | `feat/x-parser` | `master` | 1-4 | 320 |
 | 2 | Wiring | `feat/x-wiring` | `feat/x-parser` | 5-7 | 280 |
 
-Segment 1 bases on the repository's base branch; segment N bases on segment
-N-1's branch. That chain is what makes the stack reviewable in order.
+The estimate column uses the same metric as the budget — lines added or
+modified. The word "net" never appears in it.
+
+**Base chain, and where segment 1 comes from.** Execution normally starts inside
+a worktree already checked out on a feature branch created by
+`using-git-worktrees`. **That existing branch is segment 1's branch.** The plan
+records its actual name in the table; it does not create a second branch beside
+it and does not orphan the branch the worktree exists for. Segment N bases on
+segment N-1's branch. If no worktree branch exists — execution started on a
+plain checkout — segment 1's step zero creates it from the repository base
+branch.
 
 **Each segment must be independently shippable.** At the end of a segment the
 repository is green and nothing is half-wired. If a natural boundary would leave
 broken state, the boundary is in the wrong place — move it, do not ship it.
 
 **Branch creation moves into the plan.** Each segment's first task gets a step
-zero: `git checkout -b <segment-branch> <base>`. Because the step lives in the
-plan, both execution paths get it without either needing to know about
-segmentation as a concept, and an implementer subagent following steps
-literally ends up on the right branch.
+zero: `git checkout -b <segment-branch> <base>`. Segment 1's step zero is
+`git checkout <existing-worktree-branch>` when that branch already exists.
+Because the step lives in the plan, both execution paths get it without either
+needing to know about segmentation as a concept, and an implementer subagent
+following steps literally ends up on the right branch.
 
 **Finish-time backstop.** Before opening a pull request,
-`finishing-a-development-branch` measures the actual diff with the same
-exclusions. If it exceeds 800 lines and the plan declared one segment, it
-reports the number and offers to split — it does not open the pull request
-silently, and it does not rewrite history on its own.
+`finishing-a-development-branch` measures the actual diff against the base
+branch with the same exclusions. If it exceeds 800 lines and the work is a
+single segment, it reports the number and offers to split — it does not open the
+pull request silently, and it does not rewrite history on its own. When no plan
+exists (a user simply finishing a branch by hand), the work is treated as a
+single segment and the same report-and-offer applies; the backstop never needs
+to read a plan to decide whether to warn.
+
+**Blocking, not advisory, at the plan gate.** A plan whose total estimate
+exceeds 800 lines while declaring one segment is a **blocking** finding for the
+plan document reviewer: status `Issues Found` and a score below the 90 gate.
+Reporting it as a note would leave the >90 gate passable, which would make the
+hard threshold soft in practice.
 
 ### R4 — PR body
 
@@ -239,9 +266,39 @@ is deliberately removed: verification already gates this step through
 `verification-before-completion`, and a checklist of steps the author already
 ran is the padding this rule exists to eliminate.
 
-**For a stack,** each segment gets its own pull request: title prefixed
-`[N/M]`, opened with `gh pr create --base <previous segment branch>`, and a
-one-line stack map under the TL;DR naming the segments in order.
+### Stacked pull requests — mechanics
+
+`finishing-a-development-branch` today reads only the current branch. For a
+stack it needs four things the current skill has no answer for.
+
+**How it discovers the segments.** It reads the `## PR Segmentation` table from
+the plan referenced by the branch's work. If no plan is available, or the table
+declares one segment, the skill behaves exactly as it does today — one branch,
+one pull request. Segmentation is opt-in by the presence of a multi-row table.
+
+**When the pull requests open.** All of them in one pass, at the end, after the
+full test suite passes on the tip segment. Opening a segment's pull request as
+soon as its tasks finish would put a reviewer in front of code whose later
+segments can still change it.
+
+**Order.** Push and open strictly in segment order, 1 to M. Each `gh pr create`
+uses `--base <previous segment branch>`, and segment 1 uses the repository base
+branch. Creating segment N's pull request before segment N-1's branch exists on
+the remote fails, so order is a correctness requirement, not a preference.
+
+**Body.** Each pull request carries the same four sections scoped to its own
+segment, a `[N/M]` title prefix, and a one-line stack map under the TL;DR
+naming every segment in order with its pull request link once known.
+
+**Other options.** The four-option menu is unchanged in shape, and options 1, 3,
+and 4 operate on **the whole stack**, not one branch:
+
+| Option | Stack behavior |
+|---|---|
+| 1. Merge locally | Merge segments in order 1 to M, running tests after each. Stop at the first failure and report which segment broke. |
+| 2. Create PR | The loop above. Worktree preserved. |
+| 3. Keep as-is | Report every segment branch by name, so none is forgotten. |
+| 4. Discard | Typed confirmation lists **all** segment branches; deletes them in reverse order, M to 1. |
 
 ## Alternatives rejected
 
@@ -276,13 +333,15 @@ contradicting text as important as adding new text.
 | Path | Responsibility | Change |
 |---|---|---|
 | `skills/test-driven-development/SKILL.md` | TDD discipline for all coding agents | Home of R1. Retarget Iron Law to behaviors, add trivial-code exemption, rewrite the verification checklist, add anti-goals |
-| `skills/writing-plans/SKILL.md` | Turns a spec into an executable plan | Home of R3. Add segmentation section, budget table, block 28 authoring rules, step-zero branch contract. Strip what-comments from example code blocks |
+| `skills/writing-plans/SKILL.md` | Turns a spec into an executable plan | Home of R3. Add segmentation section, budget table, block 28 authoring rules, step-zero branch contract. Add R2 as an authoring constraint: code shown in plan steps carries no what-comments, since implementers copy it verbatim. Update "plan blocks 24-27" at line 23 to 24-28 |
 | `skills/finishing-a-development-branch/SKILL.md` | Only place that opens a PR | Home of R4. Replace body template, add stacked-PR loop with `--base`, add R3 finish-time backstop |
 | `skills/subagent-driven-development/implementer-prompt.md` | Dispatches implementer subagents | Home of R2. Add comment rule; replace "Are tests comprehensive?" self-review line with the R1 test |
 | `skills/executing-plans/SKILL.md` | Inline execution path, reads no prompt templates | Reach point for R1, R2, and the segment-branch steps |
 | `skills/requesting-code-review/code-reviewer.md` | Used by code-quality and final reviewers | Rewrite contradicting text ("Edge cases covered?", the "18 tests, all edge cases" example). Add R1 and R2 review checks |
-| `skills/writing-plans/plan-document-reviewer-prompt.md` | The >90 gate before execution | Grade block 28 |
+| `skills/writing-plans/plan-document-reviewer-prompt.md` | The >90 gate before execution | Grade block 28; change "blocks 24-27" at lines 34 and 38 to 24-28. An over-budget single-segment plan is a blocking finding |
 | `assets/change-brief/BLOCKS.md` | Block catalog for spec and plan authoring | Define block 28 as an always-present plan block |
+| `skills/brainstorming/spec-document-reviewer-prompt.md` | The >90 spec gate | Line 44 tells the spec reviewer not to penalize missing "plan blocks 24-27". Update to 24-28 so block 28 is not demanded of a spec |
+| `assets/change-brief/tests/render_test.sh` | Pins the block catalog | Lines 1585 and 1590 hardcode 27 (`seq 1 27`, `"27 catalog rows"`). Both become 28, or the suite goes red the moment block 28 lands |
 
 ## Persona × surface × affordance
 
@@ -292,7 +351,7 @@ Personas are the agent roles that read these skills.
 |---|---|---|---|---|---|
 | Orchestrator (main session) | `writing-plans`, `subagent-driven-development`, `finishing-a-development-branch` | n/a — does not write code | n/a | **Owns**: authors block 28 | **Owns**: writes the body |
 | Implementer subagent | `implementer-prompt.md` | Reach point → TDD skill | **Home** | Follows step zero; needs no concept of segments | n/a |
-| Inline executor | `executing-plans/SKILL.md` | Reach point → TDD skill | Reach point → rule text | Follows step zero | n/a |
+| Inline executor | `executing-plans/SKILL.md` | Rule restated in full | Rule restated in full — it never loads `implementer-prompt.md` | Follows step zero | n/a |
 | Spec compliance reviewer | `spec-reviewer-prompt.md` | Already checks "extra/unneeded work", which covers surplus tests | n/a — reviews scope, not style | n/a | n/a |
 | Code quality reviewer | `code-quality-reviewer-prompt.md` → `code-reviewer.md` | Reach point; contradicting text removed | Reach point | n/a | n/a |
 | Final branch reviewer | `code-reviewer.md` | Same file, same fix | Same file, same fix | n/a | n/a |
@@ -307,7 +366,13 @@ ungraded would let an unsegmented 3,000-line plan score 100 and proceed.
 
 ## File structure
 
-**Modify (8):** the eight files in the code inventory above.
+**Modify (10):** the ten files in the code inventory above.
+
+Two of those ten exist only because block 28 is a numbered addition to a
+catalog that four other places count or bound:
+`skills/brainstorming/spec-document-reviewer-prompt.md` and
+`assets/change-brief/tests/render_test.sh`. Renumbering ripple is cheap to fix
+and expensive to miss — missing the test one ships a red suite.
 
 **Create:** none. Every rule lands in an existing file, because the agents that
 need each rule already read a specific file and adding a new one means adding a
@@ -346,7 +411,8 @@ pointer nobody follows.
 9. `writing-plans/SKILL.md` carries the budget table with the 400 soft and 800
    hard thresholds and the exclusion list.
 10. It requires a `## PR Segmentation` section in every plan, with segment
-    number, title, branch, base, task range, and estimated net lines.
+    number, title, branch, base, task range, and estimated lines added — labelled
+    with the budget metric, never the word "net".
 11. It states the base chain rule: segment 1 on the repository base branch,
     segment N on segment N-1's branch.
 12. It requires each segment to leave the repository green and independently
@@ -354,28 +420,49 @@ pointer nobody follows.
 13. It requires each segment's first task to carry a step zero creating and
     checking out the segment branch.
 14. `BLOCKS.md` defines block 28 under "Plan blocks — always present".
-15. `plan-document-reviewer-prompt.md` grades block 28 and reports a plan over
-    the hard threshold with one segment as an issue.
-16. `finishing-a-development-branch/SKILL.md` measures the actual diff with the
-    stated exclusions, and when it exceeds 800 lines on a single-segment plan,
-    reports the number and offers to split before opening any pull request.
+15. `plan-document-reviewer-prompt.md` grades block 28, and treats a plan whose
+    estimate exceeds 800 lines while declaring one segment as a **blocking**
+    finding — status `Issues Found` with a score below 90, not an advisory note.
+16. `finishing-a-development-branch/SKILL.md` measures the actual diff against
+    the base branch with the stated exclusions, and when it exceeds 800 lines on
+    single-segment work, reports the number and offers to split before opening
+    any pull request. Work with no plan counts as single-segment.
+16a. Every place that bounds the plan-block range is updated from 24-27 to
+    24-28: `writing-plans/SKILL.md:23`,
+    `plan-document-reviewer-prompt.md:34` and `:38`, and
+    `brainstorming/spec-document-reviewer-prompt.md:44`.
+16b. `assets/change-brief/tests/render_test.sh` expects 28 catalogued blocks at
+    lines 1585 and 1590, and the suite passes.
 
 **R4 — PR body**
 
 17. `finishing-a-development-branch/SKILL.md` Option 2 emits the four-section
     body with the stated budgets, and omits `Follow-ups` when empty.
 18. `## Test Plan` no longer appears in that skill.
-19. For a multi-segment plan, Option 2 opens one pull request per segment, with
-    `[N/M]` title prefix, `--base` pointing at the previous segment branch, and
-    a stack map line.
+19. For a multi-segment plan, Option 2 opens one pull request per segment, in
+    segment order, all in one pass after tests pass on the tip segment, each
+    with an `[N/M]` title prefix, `--base` pointing at the previous segment
+    branch, and a stack map line.
+19a. Options 1, 3, and 4 operate on the whole stack per the mechanics table:
+    merge in order with tests between, report all branches, and discard all
+    branches in reverse order behind one typed confirmation.
+19b. Segmentation is opt-in by a multi-row `## PR Segmentation` table. With no
+    plan, or a single-row table, the skill behaves exactly as it does today.
 
 **Reach and consistency**
 
-20. `executing-plans/SKILL.md` points its agent at the R1 test rule and the R2
-    comment rule, and tells it to follow segment-branch steps as written.
-21. `code-reviewer.md` no longer contains "Edge cases covered?" as an unbounded
-    check, and its worked example no longer praises test count or blanket
-    coverage.
+20. `executing-plans/SKILL.md` **restates** the operative sentences of the R1
+    test rule and the R2 comment rule in its own text — not a pointer to another
+    file — and tells its agent to follow segment-branch steps as written.
+21. `code-reviewer.md` no longer contains "Edge cases covered?" (line 56) as an
+    unbounded testing check, and its worked example (line 137) no longer praises
+    test count or blanket coverage.
+21a. The neighbouring checks that concern **code handling** edge cases rather
+    than test count are deliberately kept: `code-reviewer.md:45` "Edge cases
+    handled?" and `implementer-prompt.md:81` "Are there edge cases I didn't
+    handle?". Handling an edge case in code and writing a test for it are
+    different questions, and R1 constrains only the second. The plan must not
+    delete these while deleting their neighbours.
 22. `code-reviewer.md` checks that tests map to contract behaviors and that
     comments explain why.
 
@@ -391,10 +478,12 @@ This repository has no application code, so the minimum subset that covers these
 four rules is **four behavioral scenarios plus one existing suite**, not a
 matrix of every skill against every rule.
 
-**Existing suite, unchanged:** `assets/change-brief/tests/render_test.sh` and
-`resolve_test.sh` must still pass. `BLOCKS.md` is authoring documentation and is
-not parsed by `render.sh`, so block 28 requires no renderer change and should not
-move these tests.
+**Existing suite — one file must change.** `render.sh` does not parse
+`BLOCKS.md`, so block 28 requires no renderer change. But `render_test.sh` pins
+the catalog: line 1585 loops `seq 1 27` asserting each block is catalogued, and
+line 1590 asserts exactly `27` catalog rows. Adding block 28 makes both fail.
+The plan updates those two constants to 28; `resolve_test.sh` is untouched. The
+whole suite must be green at the end.
 
 **Behavioral scenarios** — dispatch a fresh subagent per scenario following
 `skills/writing-skills/testing-skills-with-subagents.md`. Each scenario is one
@@ -408,12 +497,19 @@ that fails against the current skill text, which is what makes it worth running:
 3. **R3** — give the orchestrator a spec implying roughly 1,500 lines. Pass: the
    plan emits two or more segments with a correct base chain and a step zero on
    each segment's first task.
-4. **R4** — run `finishing-a-development-branch` Option 2 on a finished branch.
-   Pass: the body has exactly the four sections within budget, and no Test Plan.
+4. **R4 single** — run `finishing-a-development-branch` Option 2 on a finished
+   single-segment branch. Pass: the body has exactly the four sections within
+   budget, and no Test Plan.
+5. **R4 stack** — run Option 2 against a two-segment table. Pass: two pull
+   requests in segment order, segment 2 based on segment 1's branch, `[1/2]` and
+   `[2/2]` prefixes, stack map on both. This is a separate scenario from 4
+   because requirement 19 is the least-specified behavior in the design and the
+   one a single-branch run cannot exercise.
 
-No scenario is written for a rule that merely removes text; requirement 21 is
-verified by reading the file, which is cheaper than a scenario and equally
-conclusive.
+No scenario is written for a rule that merely removes or renumbers text.
+Requirements 21 and 16a are verified by reading the files, which is cheaper than
+a scenario and equally conclusive. Requirement 16b is verified by running the
+existing suite, which already exists — no new test is written for it.
 
 ## Out of scope
 
