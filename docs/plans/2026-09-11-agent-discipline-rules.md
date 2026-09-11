@@ -19,11 +19,19 @@ modified, under the 400-line soft threshold the plan itself introduces.
 
 | Segment | Title | Branch | Base | Tasks | Est. lines added |
 |---|---|---|---|---|---|
-| 1 | Agent discipline rules | `feat/agent-discipline-rules` | `master` | 1-12 | ~390 |
+| 1 | Agent discipline rules | `feat/agent-discipline-rules` | `master` | 1-13 | ~390 |
 
 The branch `feat/agent-discipline-rules` already exists and is checked out — it
 is where the spec was committed. Per the rule this plan introduces, that
 existing branch *is* segment 1's branch. No task creates a second branch.
+
+**What the ~390 counts.** Changes under `skills/` and `assets/` only. The spec
+and plan documents in `docs/` are excluded, as is `docs/briefs/`. Running Task
+10's own backstop against `master` on this branch reports over 1,800 added lines
+because it counts those two documents — that is the measurement working
+correctly on a different question, not a contradiction. The budget governs code
+and instruction text a reviewer must read, not the design artifacts that
+describe them.
 
 > [!NOTE]
 > This table is block 28, the very block Task 1 adds to the catalog. It is
@@ -68,6 +76,17 @@ against scenarios that fail today. Do not invent unit tests for markdown files.
 Block 28 is a numbered addition to a catalog that `render_test.sh` pins by
 count. The catalog row and the two test constants must change in the same
 commit, or the suite goes red between commits.
+
+- [ ] **Step 0: Get on the segment branch**
+
+```bash
+git checkout feat/agent-discipline-rules
+git branch --show-current
+```
+
+Expected: `feat/agent-discipline-rules`. The branch already exists — do not use
+`-b`. This is the step zero the rule in Task 7 requires of every segment's first
+task; this plan obeys the rule it ships.
 
 - [ ] **Step 1: Run the suite to record the baseline**
 
@@ -267,15 +286,15 @@ than a small suite that fails only when something real broke.
 
 Find:
 
-```markdown
+````markdown
 ```
 NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 ```
-```
+````
 
 Replace with:
 
-```markdown
+````markdown
 ```
 NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 ```
@@ -283,7 +302,7 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 Read "production code" as **a behavior in the contract**, not "a function". A
 function that carries no contract behavior — see the trivial-code exemption
 above — is outside the Law, not an exception to it.
-```
+````
 
 - [ ] **Step 3: Rewrite the two checklist lines**
 
@@ -407,15 +426,17 @@ grep -c "^    " skills/subagent-driven-development/implementer-prompt.md
 ```
 
 Expected: first command prints nothing with `exit=1`. Second prints a count
-greater than 100, confirming the indented template body is intact.
+greater than 90 — the file has 77 indented lines before this task and roughly 98
+after, so anything in the 90s confirms the indented template body is intact.
 
 - [ ] **Step 4: Verify the edge-case-handling line was NOT touched**
 
 ```bash
-grep -n "Are there edge cases I didn't handle?" skills/subagent-driven-development/implementer-prompt.md
+grep -c "Are there edge cases I didn't handle?" skills/subagent-driven-development/implementer-prompt.md
 ```
 
-Expected: one match at line 81. This line is about *code handling* an edge case,
+Expected: `1`. Do not check its line number — Step 1 inserts about 24 lines
+above it, so it moves. This line is about *code handling* an edge case,
 not about writing a test for it. R1 constrains only the second. Deleting it is a
 plan violation.
 
@@ -482,10 +503,12 @@ Expected: `Step 2b` on a lower line number than `Step 3`.
 - [ ] **Step 3: Verify both rules are restated, not linked**
 
 ```bash
-grep -c "minimum subset\|paraphrases the line" skills/executing-plans/SKILL.md
+grep -o "minimum subset\|paraphrases the line" skills/executing-plans/SKILL.md | wc -l
 ```
 
 Expected: `2`. A count of `0` means you wrote a pointer instead of the rule.
+Uses `grep -o | wc -l` rather than `grep -c` because `grep -c` counts matching
+*lines*, so re-wrapping the inserted text would change the answer.
 
 - [ ] **Step 4: Commit**
 
@@ -844,7 +867,7 @@ git commit -m "feat(finishing): replace PR body with TL;DR/Why/What/Follow-ups"
 Immediately after the `### Step 1: Verify Tests` section and before
 `### Step 2: Detect Environment`, insert:
 
-```markdown
+````markdown
 ### Step 1b: Measure the Diff
 
 ```bash
@@ -877,14 +900,14 @@ size warning never is.
 
 Do not rewrite history on your own to split the branch. Propose boundaries and
 let your partner choose.
-```
+````
 
 - [ ] **Step 2: Add the stacked-PR section**
 
 Immediately after the `#### Option 4: Discard` block and before
 `### Step 6: Cleanup Workspace`, insert:
 
-```markdown
+````markdown
 ### Stacked Pull Requests
 
 **How you know.** Read the plan's `## PR Segmentation` table. A table with two or
@@ -942,7 +965,7 @@ branches or close pull requests to "clean up".
 | 2. Create PR | The loop above. Worktree preserved. |
 | 3. Keep as-is | Report **every** segment branch by name, so none is forgotten. |
 | 4. Discard | The typed confirmation lists **all** segment branches; delete them in reverse order, M to 1. |
-```
+````
 
 - [ ] **Step 3: Verify both sections landed in the right order**
 
@@ -1040,12 +1063,17 @@ and to the **Always** list:
 - [ ] **Step 4: Verify no stale single-PR claim survives**
 
 ```bash
-grep -n "Test Plan\|exactly 4 options" skills/finishing-a-development-branch/SKILL.md
+grep -n "## Test Plan" skills/finishing-a-development-branch/SKILL.md; echo "exit=$?"
+grep -c "There is no Test Plan section" skills/finishing-a-development-branch/SKILL.md
 ```
 
-Expected: no `Test Plan` match. `exactly 4 options` may still appear — the
-option *count* is unchanged by this work, only what each option does with a
-stack. Leave it.
+Expected: first prints nothing with `exit=1` — no Test Plan *heading* survives.
+Second prints `1`: Task 9 deliberately added the prose sentence explaining the
+removal, so grepping for the bare words "Test Plan" would match it and look like
+a failure. Grep for the heading, not the phrase.
+
+`exactly 4 options` may still appear elsewhere in the file — the option *count*
+is unchanged by this work, only what each option does with a stack. Leave it.
 
 - [ ] **Step 5: Run the full suite**
 
@@ -1170,6 +1198,10 @@ proceed with a failing scenario recorded as "close enough".
 git add -A
 git commit -m "test(skills): behavioral verification of the four discipline rules"
 ```
+
+If all five scenarios passed and no skill text needed fixing, there is nothing
+to commit — skip this step rather than creating an empty commit. Record the
+five results in your report instead.
 
 ---
 
