@@ -721,9 +721,10 @@ git commit -m "feat(writing-plans): add PR segmentation budget and block 28"
 **Files:**
 - Modify: `skills/writing-plans/plan-document-reviewer-prompt.md` (block coverage list)
 
-The `>90` gate at `skills/writing-plans/SKILL.md:169` is the only thing between a
-plan and execution. A finding that does not push the score under the gate leaves
-the hard threshold soft in practice.
+The `>90` gate in `skills/writing-plans/SKILL.md` (the "Adversarial Plan Review"
+section — its line number shifts once Task 7 inserts above it) is the only thing
+between a plan and execution. A finding that does not push the score under the
+gate leaves the hard threshold soft in practice.
 
 - [ ] **Step 1: Add block 28 to the graded list**
 
@@ -770,14 +771,15 @@ git commit -m "feat(plan-review): grade block 28, make oversized plans blocking"
 **Depends on:** none
 
 **Files:**
-- Modify: `skills/finishing-a-development-branch/SKILL.md:122-137` (Option 2 body)
+- Modify: `skills/finishing-a-development-branch/SKILL.md:121-136` (Option 2 body)
 
 This is the home of R4.
 
 - [ ] **Step 1: Replace the Option 2 block**
 
-In `skills/finishing-a-development-branch/SKILL.md`, find the
-`#### Option 2: Push and Create PR` block, which currently reads:
+In `skills/finishing-a-development-branch/SKILL.md`, under the heading
+`#### Option 2: Push and Create PR`, replace **the fenced bash command below
+that heading** — keep the heading itself. The block to replace currently reads:
 
 ````markdown
 ```bash
