@@ -368,12 +368,12 @@ git worktree prune  # Self-healing: clean up any stale registrations
 
 ## Quick Reference
 
-| Option | Merge | Push | Keep Worktree | Cleanup Branch |
-|--------|-------|------|---------------|----------------|
-| 1. Merge locally | yes | - | - | yes |
-| 2. Create PR | - | yes | yes | - |
-| 3. Keep as-is | - | - | yes | - |
-| 4. Discard | - | - | - | yes (force) |
+| Option | Merge | Push | Keep Worktree | Cleanup Branch | With a stack |
+|--------|-------|------|---------------|----------------|--------------|
+| 1. Merge locally | yes | - | - | yes | Merge 1→M, test after each, stop at first failure |
+| 2. Create PR | - | yes | yes | - | Push and open 1→M, `--base` chained |
+| 3. Keep as-is | - | - | yes | - | Report every segment branch by name |
+| 4. Discard | - | - | - | yes (force) | Confirm all branches, delete M→1 |
 
 ## Common Mistakes
 
@@ -405,6 +405,14 @@ git worktree prune  # Self-healing: clean up any stale registrations
 - **Problem:** Accidentally delete work
 - **Fix:** Require typed "discard" confirmation
 
+**Opening stacked PRs out of order**
+- **Problem:** segment N's `--base` points at a branch not yet on the remote, so `gh pr create` fails or the stack reads wrong
+- **Fix:** push and open strictly 1 to M; stop at the first failure
+
+**Opening a PR without measuring the diff**
+- **Problem:** a 3,000-line PR gets a rubber-stamp review
+- **Fix:** run Step 1b first; over 800 lines, report and offer to split
+
 ## Red Flags
 
 **Never:**
@@ -415,6 +423,9 @@ git worktree prune  # Self-healing: clean up any stale registrations
 - Remove a worktree before confirming merge success
 - Clean up worktrees you didn't create (provenance check)
 - Run `git worktree remove` from inside the worktree
+- Open a pull request without running the Step 1b size check
+- Open stacked pull requests out of segment order
+- Delete remote branches or close PRs to "clean up" a partially-created stack
 
 **Always:**
 - Verify tests before offering options
@@ -424,3 +435,5 @@ git worktree prune  # Self-healing: clean up any stale registrations
 - Clean up worktree for Options 1 & 4 only
 - `cd` to main repo root before worktree removal
 - Run `git worktree prune` after removal
+- Measure the diff before offering options
+- Report partial stack progress rather than rolling it back
