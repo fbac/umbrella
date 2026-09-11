@@ -405,4 +405,8 @@ Production code → test exists and failed first
 Otherwise → not TDD
 ```
 
-No exceptions without your human partner's permission.
+"Production code" means code carrying a behavior in the contract — see The
+Minimum Subset. Trivial passthroughs, constants, and branchless accessors are
+outside this rule, not exceptions to it, and need no permission. For anything
+that does carry contract behavior, no exceptions without your human partner's
+permission.
