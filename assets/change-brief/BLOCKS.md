@@ -73,6 +73,7 @@ becomes the masthead. Any H1 further down is flattened to `####`.
 | 25 | Walk tag per task |
 | 26 | `**Depends on:**` per task (`none` when independent) |
 | 27 | Browser-Walk Inventory |
+| 28 | `## PR Segmentation` table — one row per pull request, always present even when there is only one |
 
 The task dependency graph is **not** an agent-authored block. The renderer
 derives it from block 26.
