@@ -37,6 +37,39 @@ Stop. Don't proceed to Step 2.
 
 **If tests pass:** Continue to Step 2.
 
+### Step 1b: Measure the Diff
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+git diff --numstat "$BASE"..HEAD \
+  | grep -vE '(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|go\.sum|Cargo\.lock|^docs/briefs/|/vendor/)' \
+  | awk '{ added += $1 } END { print added+0 }'
+```
+
+That number is lines added or modified, with generated files, lockfiles,
+vendored dependencies and `docs/briefs/` excluded.
+
+**If it exceeds 800 and this is single-segment work, stop and report before
+opening anything:**
+
+```
+This branch adds <N> lines, past the 800-line review budget. Nobody reviews a
+diff this size carefully — review degrades to a rubber stamp.
+
+Options:
+1. Open it as one PR anyway (you accept the review cost)
+2. Split it into a stack before opening (I'll propose boundaries)
+
+Which?
+```
+
+Work with **no plan at all** — a branch you finished by hand — counts as
+single-segment, so this check still applies. Only *stacking* is opt-in; the
+size warning never is.
+
+Do not rewrite history on your own to split the branch. Propose boundaries and
+let your partner choose.
+
 ### Step 2: Detect Environment
 
 **Determine workspace state before presenting options:**
@@ -197,6 +230,64 @@ Then: Cleanup worktree (Step 6), then force-delete branch:
 ```bash
 git branch -D <feature-branch>
 ```
+
+### Stacked Pull Requests
+
+**How you know.** Read the plan's `## PR Segmentation` table. A table with two or
+more rows means a stack. **No plan, or a single row, means the skill behaves
+exactly as it always has — one branch, one pull request.** Stacking is opt-in;
+the Step 1b size check is not.
+
+**When.** Open all pull requests in one pass, at the end, after the full test
+suite passes on the tip segment. Opening a segment's PR as soon as its tasks
+finish puts a reviewer in front of code that later segments can still change.
+
+**Order.** Push and open strictly in segment order, 1 to M. Creating segment N's
+pull request before segment N-1's branch exists on the remote fails, so order is
+correctness, not preference.
+
+```bash
+# For each segment in order 1..M:
+git push -u origin <segment-branch>
+gh pr create \
+  --base <previous-segment-branch> \
+  --title "[N/M] <segment title>" \
+  --body "$(cat <<'EOF'
+## TL;DR
+<What this segment does.>
+
+**Stack:** 1. <seg-1 title> · 2. <seg-2 title> · 3. <seg-3 title>  ← you are here: N
+
+## Why
+<What is broken today that the whole stack addresses, and what this segment contributes.>
+
+## What
+<What this segment changed.>
+EOF
+)"
+```
+
+Segment 1 uses the repository base branch for `--base`.
+
+**When something fails mid-stack:**
+
+| Failure | What to do |
+|---|---|
+| `git push` fails on segment K | Stop. Do not attempt K+1 — its base does not exist on the remote, so it cannot succeed. Report which segments landed and the command to resume at K. |
+| `gh pr create` fails on segment K | Stop for the same reason: K+1's `--base` would point at a branch with no PR and the stack reads out of order. Report and give the resume command. |
+| A segment branch named in the table does not exist | Report the mismatch and push nothing. Execution diverged from the plan, and guessing which branch was meant is worse than asking. |
+
+**Never roll back automatically.** Report partial progress; do not delete remote
+branches or close pull requests to "clean up".
+
+**Options 1, 3 and 4 act on the whole stack:**
+
+| Option | Stack behavior |
+|---|---|
+| 1. Merge locally | Merge segments in order 1 to M, running tests after each. Stop at the first failure and report which segment broke, leaving 1..K-1 merged. |
+| 2. Create PR | The loop above. Worktree preserved. |
+| 3. Keep as-is | Report **every** segment branch by name, so none is forgotten. |
+| 4. Discard | The typed confirmation lists **all** segment branches; delete them in reverse order, M to 1. |
 
 ### Step 6: Cleanup Workspace
 
