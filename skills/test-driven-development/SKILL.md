@@ -47,6 +47,11 @@ pure passthrough, a constant or configuration declaration, or an accessor with
 no branching and no computation. This needs no partner permission. Everything
 else still needs a failing test first.
 
+This is narrower than "Configuration files" in the Exceptions list above. That
+entry is about a whole file of configuration as a kind of work, and skipping it
+is your partner's call. This exemption is about individual declarations sitting
+inside code that is otherwise under TDD — those you skip on your own judgement.
+
 **Anti-goals.** These are not goals and never were:
 
 - No coverage percentage is a target. Not 100%, not 80%.
@@ -406,7 +411,7 @@ Otherwise → not TDD
 ```
 
 "Production code" means code carrying a behavior in the contract — see The
-Minimum Subset. Trivial passthroughs, constants, and branchless accessors are
+Minimum Subset. Pure passthroughs, constants, configuration, and branchless accessors are
 outside this rule, not exceptions to it, and need no permission. For anything
 that does carry contract behavior, no exceptions without your human partner's
 permission.

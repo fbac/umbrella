@@ -54,7 +54,7 @@ Task tool (general-purpose):
     - Tests verify real behavior, not mocks?
     - Does each test map to a behavior in the contract, or to a corner case a
       real caller can produce? Flag tests that map to neither.
-    - Any test for a trivial passthrough, a constant or configuration
+    - Any test for a pure passthrough, a constant or configuration
       declaration, or a branchless accessor? That is bloat — flag it for
       deletion.
     - Integration tests where they matter?

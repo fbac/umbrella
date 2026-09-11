@@ -61,6 +61,13 @@ Task tool (general-purpose):
     are checking that the author made the decision deliberately, not grading how
     good the reason is.
 
+    **Grade every row, not just the total.** Segmenting must not switch the
+    budget off. Check each segment's own `Est. lines added` against the same
+    thresholds: any single row over 800 is the same blocking finding as an
+    oversized single-segment plan, and a row between 400 and 800 wants the same
+    one-sentence justification. A plan splitting 3,200 lines into rows of 3,000
+    and 200 has satisfied the letter of "segment it" and none of the point.
+
     **When the plan says it cannot be split.** The author's rule is that
     shippability outranks the budget: if no boundary leaves every segment
     independently shippable, they must say so in the plan rather than ship a

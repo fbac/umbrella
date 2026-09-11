@@ -77,6 +77,19 @@ Work with **no plan at all** — a branch you finished by hand — counts as
 single-segment, so this check still applies. Only *stacking* is opt-in; the
 size warning never is.
 
+**For a stack, measure each segment against its own base**, not the whole branch
+against the repository base. Segmenting must not switch the budget off — a stack
+of 3,000 and 200 lines satisfies the letter of splitting and none of the point.
+Run the same measurement per segment, substituting that segment's base branch:
+
+```bash
+git diff --numstat <segment-base>..<segment-branch> \
+  | grep -vE '(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|go\.sum|Cargo\.lock|^docs/briefs/|/vendor/)' \
+  | awk '{ added += $1 } END { print added+0 }'
+```
+
+Report any segment over 800 the same way, naming which segment.
+
 Do not rewrite history on your own to split the branch. Propose boundaries and
 let your partner choose.
 
