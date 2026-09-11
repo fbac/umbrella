@@ -67,6 +67,11 @@ Task tool (general-purpose):
     Approve unless there are serious gaps — missing requirements from the spec,
     contradictory steps, placeholder content, or tasks so vague they can't be acted on.
 
+    **Segmentation is the one exception to "approve unless serious."** It blocks
+    on size alone, even when every task is clear and an implementer would have no
+    trouble building from the plan. A plan nobody can review is a problem whether
+    or not it is a problem to implement.
+
     ## Output Format
 
     ## Plan Review
