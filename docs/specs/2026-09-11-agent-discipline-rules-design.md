@@ -341,7 +341,7 @@ contradicting text as important as adding new text.
 | `skills/writing-plans/plan-document-reviewer-prompt.md` | The >90 gate before execution | Grade block 28; change "blocks 24-27" at lines 34 and 38 to 24-28. An over-budget single-segment plan is a blocking finding |
 | `assets/change-brief/BLOCKS.md` | Block catalog for spec and plan authoring | Define block 28 as an always-present plan block |
 | `skills/brainstorming/spec-document-reviewer-prompt.md` | The >90 spec gate | Line 44 tells the spec reviewer not to penalize missing "plan blocks 24-27". Update to 24-28 so block 28 is not demanded of a spec |
-| `assets/change-brief/tests/render_test.sh` | Pins the block catalog | Lines 1585 and 1590 hardcode 27 (`seq 1 27`, `"27 catalog rows"`). Both become 28, or the suite goes red the moment block 28 lands |
+| `assets/change-brief/tests/render_test.sh` | Pins the block catalog | Lines 1585 and 1589 hardcode 27 (`seq 1 27`, `"27 catalog rows"`). Both become 28, or the suite goes red the moment block 28 lands |
 
 ## Persona × surface × affordance
 
@@ -409,79 +409,88 @@ pointer nobody follows.
 **R3 — segmentation**
 
 9. `writing-plans/SKILL.md` carries the budget table with the 400 soft and 800
-   hard thresholds and the exclusion list.
+   hard thresholds and the exclusion list, measuring lines added or modified.
 10. It requires a `## PR Segmentation` section in every plan, with segment
-    number, title, branch, base, task range, and estimated lines added — labelled
-    with the budget metric, never the word "net".
-11. It states the base chain rule: segment 1 on the repository base branch,
-    segment N on segment N-1's branch.
+    number, title, branch, base, task range, and estimated lines added —
+    labelled with the budget metric, never the word "net".
+11. It states the base chain rule: segment N bases on segment N-1's branch.
+    Segment 1 bases on the repository base branch **only when no feature branch
+    already exists**; when execution runs in a worktree created by
+    `using-git-worktrees`, that existing branch *is* segment 1's branch and the
+    plan records its real name.
 12. It requires each segment to leave the repository green and independently
     shippable.
-13. It requires each segment's first task to carry a step zero creating and
-    checking out the segment branch.
+13. It requires each segment's first task to carry a step zero that puts the
+    agent on the segment branch: `git checkout -b <branch> <base>` for a branch
+    that does not yet exist, and a plain `git checkout <branch>` for segment 1
+    when the worktree branch already exists. A plan must never create a second
+    branch beside the worktree branch.
 14. `BLOCKS.md` defines block 28 under "Plan blocks — always present".
 15. `plan-document-reviewer-prompt.md` grades block 28, and treats a plan whose
     estimate exceeds 800 lines while declaring one segment as a **blocking**
-    finding — status `Issues Found` with a score below 90, not an advisory note.
+    finding — status `Issues Found` with a score not above 90, matching the
+    `>90` gate at `writing-plans/SKILL.md:169`. Not an advisory note.
 16. `finishing-a-development-branch/SKILL.md` measures the actual diff against
     the base branch with the stated exclusions, and when it exceeds 800 lines on
     single-segment work, reports the number and offers to split before opening
-    any pull request. Work with no plan counts as single-segment.
-16a. Every place that bounds the plan-block range is updated from 24-27 to
-    24-28: `writing-plans/SKILL.md:23`,
-    `plan-document-reviewer-prompt.md:34` and `:38`, and
-    `brainstorming/spec-document-reviewer-prompt.md:44`.
-16b. `assets/change-brief/tests/render_test.sh` expects 28 catalogued blocks at
-    lines 1585 and 1590, and the suite passes.
+    any pull request. Work with no plan counts as single-segment, so the
+    backstop applies to hand-finished branches too.
+17. Every place that bounds the plan-block range is updated from 24-27 to 24-28:
+    `writing-plans/SKILL.md:23`, `plan-document-reviewer-prompt.md:34` and
+    `:38`, and `brainstorming/spec-document-reviewer-prompt.md:44`.
+18. `assets/change-brief/tests/render_test.sh` expects 28 catalogued blocks at
+    lines 1585 (`seq 1 27`) and 1589 (`"27 catalog rows"`), and the suite passes.
 
 **R4 — PR body**
 
-17. `finishing-a-development-branch/SKILL.md` Option 2 emits the four-section
+19. `finishing-a-development-branch/SKILL.md` Option 2 emits the four-section
     body with the stated budgets, and omits `Follow-ups` when empty.
-18. `## Test Plan` no longer appears in that skill.
-19. For a multi-segment plan, Option 2 opens one pull request per segment, in
+20. `## Test Plan` no longer appears in that skill.
+21. For a multi-segment plan, Option 2 opens one pull request per segment, in
     segment order, all in one pass after tests pass on the tip segment, each
     with an `[N/M]` title prefix, `--base` pointing at the previous segment
     branch, and a stack map line.
-19a. Options 1, 3, and 4 operate on the whole stack per the mechanics table:
+22. Options 1, 3, and 4 operate on the whole stack per the mechanics table:
     merge in order with tests between, report all branches, and discard all
     branches in reverse order behind one typed confirmation.
-19b. Segmentation is opt-in by a multi-row `## PR Segmentation` table. With no
-    plan, or a single-row table, the skill behaves exactly as it does today.
+23. Stacking behavior is opt-in by a multi-row `## PR Segmentation` table. With
+    no plan, or a single-row table, the skill's branch and pull-request handling
+    is exactly what it is today — one branch, one pull request. This scopes only
+    stacking; the requirement 16 backstop still applies.
 
 **Reach and consistency**
 
-20. `executing-plans/SKILL.md` **restates** the operative sentences of the R1
+24. `executing-plans/SKILL.md` **restates** the operative sentences of the R1
     test rule and the R2 comment rule in its own text — not a pointer to another
     file — and tells its agent to follow segment-branch steps as written.
-21. `code-reviewer.md` no longer contains "Edge cases covered?" (line 56) as an
+25. `code-reviewer.md` no longer contains "Edge cases covered?" (line 55) as an
     unbounded testing check, and its worked example (line 137) no longer praises
     test count or blanket coverage.
-21a. The neighbouring checks that concern **code handling** edge cases rather
+26. The neighbouring checks that concern **code handling** edge cases rather
     than test count are deliberately kept: `code-reviewer.md:45` "Edge cases
     handled?" and `implementer-prompt.md:81` "Are there edge cases I didn't
     handle?". Handling an edge case in code and writing a test for it are
     different questions, and R1 constrains only the second. The plan must not
     delete these while deleting their neighbours.
-22. `code-reviewer.md` checks that tests map to contract behaviors and that
+27. `code-reviewer.md` checks that tests map to contract behaviors and that
     comments explain why.
 
 ### `browser-walk-only`
 
-23. A plan containing a `## PR Segmentation` table renders in the change brief
+28. A plan containing a `## PR Segmentation` table renders in the change brief
     with the section in the left index and the table inside its own horizontal
     scroll container, legible in both light and dark themes.
 
 ## Testing strategy
 
 This repository has no application code, so the minimum subset that covers these
-four rules is **four behavioral scenarios plus one existing suite**, not a
+four rules is **five behavioral scenarios plus one existing suite**, not a
 matrix of every skill against every rule.
 
 **Existing suite — one file must change.** `render.sh` does not parse
 `BLOCKS.md`, so block 28 requires no renderer change. But `render_test.sh` pins
 the catalog: line 1585 loops `seq 1 27` asserting each block is catalogued, and
-line 1590 asserts exactly `27` catalog rows. Adding block 28 makes both fail.
+line 1589 asserts exactly `27` catalog rows. Adding block 28 makes both fail.
 The plan updates those two constants to 28; `resolve_test.sh` is untouched. The
 whole suite must be green at the end.
 
@@ -503,12 +512,12 @@ that fails against the current skill text, which is what makes it worth running:
 5. **R4 stack** — run Option 2 against a two-segment table. Pass: two pull
    requests in segment order, segment 2 based on segment 1's branch, `[1/2]` and
    `[2/2]` prefixes, stack map on both. This is a separate scenario from 4
-   because requirement 19 is the least-specified behavior in the design and the
+   because requirement 21 is the least-specified behavior in the design and the
    one a single-branch run cannot exercise.
 
 No scenario is written for a rule that merely removes or renumbers text.
-Requirements 21 and 16a are verified by reading the files, which is cheaper than
-a scenario and equally conclusive. Requirement 16b is verified by running the
+Requirements 25 and 17 are verified by reading the files, which is cheaper than
+a scenario and equally conclusive. Requirement 18 is verified by running the
 existing suite, which already exists — no new test is written for it.
 
 ## Out of scope
