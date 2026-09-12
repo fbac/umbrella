@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source srcset="assets/img/umbrella-header.svg" type="image/svg+xml">
-    <img src="assets/img/umbrella-header.png" width="550" alt="umbrella — code & chill">
+    <img src="assets/img/umbrella-header.png" width="1012" alt="umbrella — code & chill">
   </picture>
 </p>
 
