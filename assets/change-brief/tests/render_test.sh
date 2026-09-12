@@ -30,8 +30,8 @@ case "$canary_pass" in *"PASS"*) ;; *) echo "harness self-test failed: a matched
 case "$canary_fail" in *"FAIL"*) ;; *) echo "harness self-test failed: a mismatched pair did not report FAIL [$canary_fail]" >&2; exit 3 ;; esac
 
 echo "== repo scaffold =="
-grep -q '^docs/briefs/$' "$R/.gitignore" && ok "gitignore excludes docs/briefs/" \
-  || no "gitignore excludes docs/briefs/" "missing"
+grep -q '^docs/$' "$R/.gitignore" && ok "gitignore excludes docs/" \
+  || no "gitignore excludes docs/" "missing"
 # .gitattributes pinned the pipeline sources and the fixtures and left the two
 # directories render.sh actually reads unspecified. Measured before the fix:
 # `git check-attr text docs/plans/*.md` said `unspecified`, and a CRLF spec is
@@ -41,7 +41,7 @@ grep -q '^docs/briefs/$' "$R/.gitignore" && ok "gitignore excludes docs/briefs/"
 # they exist to prevent. Asked of git, on a path that need not exist, rather
 # than grepped out of the file: an `eol=lf` line a later pattern overrides, or
 # one whose directory has since moved, still greps green while pinning nothing.
-for d in docs/specs docs/plans; do
+for d in assets/change-brief/tests/fixtures; do
   chk "$d/*.md pinned to LF" \
     "$(git -C "$R" check-attr eol -- "$d/any.md" 2>/dev/null | sed 's/.*: //')" "lf"
 done
@@ -610,32 +610,6 @@ else
   no "large spec payload keeps its very last body line intact" "render failed: $(cat "$W/large_err.txt")"
 fi
 
-echo "== renders this repository's own real spec and plan (the regression that mattered) =="
-# Every fixture above is synthetic. These are the actual documents render.sh
-# exists to render, present in every checkout — using them here is what would
-# have caught the SIGPIPE regression immediately instead of shipping it.
-REALSPEC="$R/docs/specs/2026-07-27-visual-change-briefs-design.md"
-REALPLAN="$R/docs/plans/2026-07-30-visual-change-briefs.md"
-if [ -s "$REALSPEC" ] && [ -s "$REALPLAN" ]; then
-  "$S/render.sh" "$REALSPEC" "$REALPLAN" -o "$W/real.html" >/dev/null 2>"$W/real_err.txt"
-  rc=$?
-  chk "real spec+plan render exits 0 instead of SIGPIPE (141)" "$rc" "0"
-  if [ "$rc" -eq 0 ] && [ -s "$W/real.html" ]; then
-    # The sentinel is "## Plan" plus a trailing U+2060 WORD JOINER on its own
-    # line. A plain '^## Plan' match is not enough: the real plan document
-    # has its own "## Plan" and "## Plan blocks" headings, so only the
-    # byte-exact sentinel line proves the parse structure survived.
-    chk "real spec+plan payload decodes with the sentinel present" \
-      "$(payload "$W/real.html" | grep -c $'^## Plan\xe2\x81\xa0$')" "1"
-  else
-    no "real spec+plan payload decodes with the sentinel present" "render failed: $(cat "$W/real_err.txt")"
-  fi
-else
-  no "real spec+plan render exits 0 instead of SIGPIPE (141)" \
-    "fixture not present: $REALSPEC or $REALPLAN missing/empty"
-  no "real spec+plan payload decodes with the sentinel present" "fixture not present"
-fi
-
 echo "== template JS: failure containment (one bad attribute or a throwing localStorage must not blank the page) =="
 # These are static proxies for a runtime fix -- whether the page actually
 # degrades gracefully cannot be expressed as a grep (there is no JS engine
@@ -1005,45 +979,6 @@ else
      "box=[${dagbox_ln:-missing}] cap=[${dagcap_ln:-missing}]"
 fi
 
-echo "== plan/template mirror =="
-# Tasks 13, 14 and 15 quote this plan's code fences verbatim. A snippet that has
-# drifted from the shipped file is a stale instruction, and nothing else in this
-# suite can see it: the drift stays invisible until a later task applies the
-# snippet and lands code that no longer matches what is here. Verifying it by
-# hand in a scratchpad is exactly the check that is not there when it is needed.
-#
-# Written to generalise. mirror_chk takes (label, plan-fence first line, file,
-# file first line, file stop line), so Task 16 can point it at every mirrored
-# task rather than reinventing the extraction.
-PLAN="$R/docs/plans/2026-07-30-visual-change-briefs.md"
-# Trailing blank lines are an artifact of where each slice happens to end, not
-# drift, and they are the only difference the two extractions legitimately have.
-notrail(){ awk '{ l[NR] = $0 }
-                 END { n = NR; while (n > 0 && l[n] ~ /^[[:space:]]*$/) n--;
-                       for (i = 1; i <= n; i++) print l[i] }'; }
-# Body of the fenced block in $1 whose first body line is exactly $2.
-fence_body(){ awk -v m="$2" '$0 == m { on = 1 } on { if ($0 == "```") exit; print }' "$1" | notrail; }
-# Lines of $1 from the line matching $2 up to but excluding the line matching $3.
-file_slice(){ awk -v a="$2" -v b="$3" '$0 == a { on = 1 } on { if ($0 == b) exit; print }' "$1" | notrail; }
-mirror_chk(){
-  fence_body "$PLAN" "$2"       > "$W/mirror.plan"
-  file_slice "$3"    "$4"  "$5" > "$W/mirror.file"
-  # Both sides non-empty FIRST. A renamed plan, a reworded marker or a moved
-  # block would otherwise leave two empty extractions comparing equal, and this
-  # check would report PASS for a mirror it never actually looked at -- the
-  # silent-success failure mode the Preflight calls out by name.
-  if [ ! -s "$W/mirror.plan" ] || [ ! -s "$W/mirror.file" ]; then
-    no "$1" "extraction empty: plan=$(wc -l < "$W/mirror.plan" | tr -d ' ')L file=$(wc -l < "$W/mirror.file" | tr -d ' ')L -- a marker moved or a file was renamed"
-  elif diff -q "$W/mirror.plan" "$W/mirror.file" >/dev/null 2>&1; then
-    ok "$1"
-  else
-    no "$1" "drifted on $(diff "$W/mirror.plan" "$W/mirror.file" | grep -c '^[<>]') lines; first: $(diff "$W/mirror.plan" "$W/mirror.file" | sed -n '2p' | cut -c1-80)"
-  fi
-}
-DAG_HEAD='  /* ---------- task dependency graph, built from **Depends on:** ---------- */'
-mirror_chk "Task 12's plan snippet is byte-identical to the shipped template" \
-  "$DAG_HEAD" "$S/template.html" "$DAG_HEAD" '  /* ---------- walk-tag badges ---------- */'
-
 echo "== template JS: mermaid contract =="
 chk "no v8/v9 callback form" \
   "$(grep -c 'mermaid.render(id, src, function' "$S/template.html")" "0"
@@ -1201,11 +1136,6 @@ chk "a run-level deadline marks the run even if nothing else does" \
 # Retargeted by Task 14. The stop marker was the IIFE's closing "})();" only
 # because this renderer was then the last section in the file; Task 14 appends
 # the index after it, so the marker is now the index's own header comment.
-MMD_HEAD='  /* ---------- mermaid: v10 async contract, both themes rendered up front ---------- */'
-TOC_HEAD='  /* ---------- build TOC ---------- */'
-mirror_chk "Task 13's plan snippet is byte-identical to the shipped template" \
-  "$MMD_HEAD" "$S/template.html" "$MMD_HEAD" "$TOC_HEAD"
-
 echo "== template JS: index =="
 chk "index built from h2/h3 only" \
   "$(grep -c 'content.querySelectorAll("h2, h3")' "$S/template.html")" "2"
@@ -1336,8 +1266,6 @@ else
      "build=[${build_ln:-missing}] scrollspy=[${spy_ln:-missing}]"
 fi
 
-mirror_chk "Task 14's plan snippet is byte-identical to the shipped template" \
-  "$TOC_HEAD" "$S/template.html" "$TOC_HEAD" '})();'
 # NOTE FOR TASK 15: the stop marker above is the IIFE's closing "})();", correct
 # only while the mobile sidebar is the last section in the file. Rather than hand
 # Task 15 the same puzzling hundred-line diff on someone else's mirror that Task

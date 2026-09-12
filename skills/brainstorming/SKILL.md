@@ -118,7 +118,7 @@ digraph brainstorming {
 
 ## Completeness Pass (persona × surface × affordance)
 
-**Why this exists:** A high adversarial-review score grades *internal quality*, not whether the spec asked every necessary question. A real incident (W1-D-DASHBOARD) shipped with spec 91 / plan 95 / branch 96 yet left an authed persona with no logout path and two redundant adjacent CTAs — because the spec never enumerated each persona's full surface. Review conforms to the spec's scope; it cannot catch a question the spec never asked. This pass asks them.
+**Why this exists:** A high adversarial-review score grades *internal quality*, not whether the spec asked every necessary question. A real dashboard feature shipped with spec 91 / plan 95 / branch 96 yet left an authed persona with no logout path and two redundant adjacent CTAs — because the spec never enumerated each persona's full surface. Review conforms to the spec's scope; it cannot catch a question the spec never asked. This pass asks them.
 
 Before proposing approaches, build an explicit matrix and fill every cell:
 

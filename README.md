@@ -103,8 +103,9 @@ Block catalog and heading conventions: `assets/change-brief/BLOCKS.md`.
 hooks/            session-start hook + cross-platform polyglot wrapper
 skills/           15 skills, each a SKILL.md plus its references
 assets/           change-brief renderer, template, vendored JS, tests
-docs/             specs and plans for umbrella's own development
 ```
+
+`docs/` is gitignored — umbrella's own specs, plans, and rendered briefs stay local.
 
 ## Tests
 
@@ -118,7 +119,7 @@ The browser suite is optional (needs `playwright-core`). It exits `2` when no br
 
 ## Contributing
 
-Umbrella is built with its own skills. Changes to a skill go through `writing-skills`: spec first, adversarial review, then subagent testing to confirm the skill actually changes agent behavior. Specs land in `docs/specs/`, plans in `docs/plans/`.
+Umbrella is built with its own skills. Changes to a skill go through `writing-skills`: spec first, adversarial review, then subagent testing to confirm the skill actually changes agent behavior. Specs land in `docs/specs/`, plans in `docs/plans/` — untracked here, so attach them to the PR if they matter to the review.
 
 ## Credits and license
 

@@ -11,7 +11,7 @@ A standard code review and a high adversarial score grade **internal quality** â
 
 Apply this lens **in addition to** normal code review (e.g. `umbrella:requesting-code-review`) â€” during per-task review and again on the final branch.
 
-**Origin:** W1-D-DASHBOARD scored spec 91 / plan 95 / branch 96, yet the human browser walk found three non-correctness issues none of the reviews reached: a `loading.tsx` render-timing flash, two redundant adjacent operator CTAs, and no logout path for a newly-admitted authed persona. All invisible to static review.
+**Origin:** A dashboard feature scored spec 91 / plan 95 / branch 96, yet the human browser walk found three non-correctness issues none of the reviews reached: a `loading.tsx` render-timing flash, two redundant adjacent operator CTAs, and no logout path for a newly-admitted authed persona. All invisible to static review.
 
 ## When to Use
 

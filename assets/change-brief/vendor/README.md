@@ -7,7 +7,7 @@ Committed so a rendered brief opens from `file://` with zero network requests.
 | `marked.min.js` | marked | 12.0.2 | `15fabce5b65898b32b03f5ed25e9f891a729ad4c0d6d877110a7744aa847a894` |
 | `mermaid.min.js` | mermaid | 10.9.1 | `61b335a46df05a7ce1c98378f60e5f3e77a7fb608a1056997e8a649304a936d6` |
 
-Both are MIT licensed.
+Both are MIT licensed. `marked.min.js` carries its copyright header inline; mermaid's bundle ships none, so its notice is in `mermaid.LICENSE`.
 
 ## Why these versions are pinned
 
