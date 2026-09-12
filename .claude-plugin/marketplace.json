@@ -3,7 +3,7 @@
   "description": "Umbrella — standalone Claude Code workflow + skills library (forked from superpowers).",
   "owner": {
     "name": "Borja Aranda",
-    "email": "0xfbac@gmail.com"
+    "email": "me@fbac.dev"
   },
   "plugins": [
     {
@@ -13,7 +13,7 @@
       "source": "./",
       "author": {
         "name": "Borja Aranda",
-        "email": "0xfbac@gmail.com"
+        "email": "me@fbac.dev"
       }
     }
   ]
