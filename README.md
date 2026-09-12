@@ -6,6 +6,8 @@ A standalone Claude Code plugin that gives your coding agent a working disciplin
 
 **Score != ship.** A >90 review grades internal quality. It does not grade whether the assembled surface actually works for every persona. Umbrella adds the checks that catch what a clean diff hides.
 
+On an ideal setup, the adversarial review is routed to another model.
+
 ---
 
 ## Install
