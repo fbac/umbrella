@@ -1,4 +1,9 @@
-# Umbrella
+<p align="center">
+  <picture>
+    <source srcset="assets/img/umbrella-header.svg" type="image/svg+xml">
+    <img src="assets/img/umbrella-header.png" width="550" alt="umbrella — code & chill">
+  </picture>
+</p>
 
 A standalone Claude Code plugin that gives your coding agent a working discipline: brainstorm before building, plan before coding, test before implementing, verify before claiming done.
 
