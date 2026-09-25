@@ -32,10 +32,10 @@ Without Umbrella, an agent jumps straight to code. With it, work routes through 
 
 ```
 idea → brainstorming → spec (docs/specs/) → writing-plans → plan (docs/plans/)
-     → TDD implementation → code review + review-lens → browser walk → ship
+     → implementation + minimal tests → code review + review-lens → browser walk → ship
 ```
 
-Each stage has a gate. Specs go through an adversarial review that must clear 90 before a plan gets written. Plans do the same. Implementation writes the failing test first. Nothing is called "done" without a command run and its output read.
+Each stage has a gate. Specs go through an adversarial review that must clear 90 before a plan gets written. Plans do the same. Implementation ships with the fewest tests that prove it, each shown to fail when the change is broken. Nothing is called "done" without a command run and its output read.
 
 ## The skills
 
@@ -46,7 +46,7 @@ Each stage has a gate. Specs go through an adversarial review that must clear 90
 | `brainstorming` | Before any creative work. Turns an idea into a spec through dialogue, then runs a persona × surface × affordance completeness pass and an adversarial spec gate. |
 | `writing-plans` | You have a spec. Produces a bite-sized task plan written for an engineer with zero context and questionable taste. |
 | `systematic-debugging` | Any bug or test failure. Root cause before fixes — symptom patches are failure. |
-| `test-driven-development` | Any feature or bugfix. If you didn't watch the test fail, you don't know what it tests. |
+| `minimal-testing` | Any feature or bugfix, once it works. One test per contract behavior, real calls over mocks, each proven to fail without the change. |
 | `verification-before-completion` | About to say "done", "fixed", or "passing". Evidence before claims, always. |
 
 **Review**

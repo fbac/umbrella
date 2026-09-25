@@ -39,8 +39,8 @@ not the function. Write one test per behavior the plan's task describes, plus
 one per corner case a real caller can produce in production. If you cannot name
 the caller and the input that reaches a corner case, do not write the test. Pure
 passthroughs, constants, configuration, and branchless accessors need no test at
-all. No coverage percentage is a target. See umbrella:test-driven-development
-for the full rule.
+all. No coverage percentage is a target. Prefer real calls over mocks. See
+umbrella:minimal-testing for the full rule.
 
 **Comments — why, not what.** Code says what it does; comments say why it does
 it that way. A comment that paraphrases the line beneath it is forbidden — it
