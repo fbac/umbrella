@@ -9,7 +9,7 @@
     {
       "name": "umbrella",
       "description": "Standalone workflow + skills library: minimal testing, debugging, planning, brainstorming, review-lens. Score != ship.",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "source": "./",
       "author": {
         "name": "Borja Aranda",
