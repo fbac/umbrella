@@ -30,7 +30,7 @@ Task tool (general-purpose):
 
     Once you're clear on requirements:
     1. Implement exactly what the task specifies
-    2. Write tests (following TDD if task says to)
+    2. Write the minimum tests that prove it (umbrella:minimal-testing)
     3. Verify implementation works
     4. Commit your work
     5. Self-review (see below)
@@ -117,7 +117,8 @@ Task tool (general-purpose):
 
     **Testing:**
     - Do tests actually verify behavior (not just mock behavior)?
-    - Did I follow TDD if required?
+    - Did each test fail with my change broken, and pass with it restored?
+    - Do tests call real code, with mocks only at external edges?
     - Does every behavior in the contract have a test?
     - Did I write any test for an input no real caller can produce? Delete it.
     - Did I test a pure passthrough, a constant or configuration declaration,

@@ -204,7 +204,7 @@ Done!
 ## Advantages
 
 **vs. Manual execution:**
-- Subagents follow TDD naturally
+- Subagents write the minimum tests that prove each task
 - Fresh context per task (no confusion)
 - Parallel-safe (subagents don't interfere)
 - Subagent can ask questions (before AND during work)
@@ -273,7 +273,7 @@ Done!
 - **umbrella:finishing-a-development-branch** - Complete development after all tasks
 
 **Subagents should use:**
-- **umbrella:test-driven-development** - Subagents follow TDD for each task
+- **umbrella:minimal-testing** - Minimum tests that prove each task
 
 **Alternative workflow:**
 - **umbrella:executing-plans** - Use for parallel session instead of same-session execution

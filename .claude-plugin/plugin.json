@@ -1,6 +1,6 @@
 {
   "name": "umbrella",
-  "description": "Standalone Claude Code workflow + skills library (TDD, debugging, planning, brainstorming, collaboration), forked from superpowers and extended with a persona×surface×affordance completeness pass, browser-walk-only tagging, and a review-lens. Score != ship.",
+  "description": "Standalone Claude Code workflow + skills library (minimal testing, debugging, planning, brainstorming, collaboration), forked from superpowers and extended with a persona×surface×affordance completeness pass, browser-walk-only tagging, and a review-lens. Score != ship.",
   "version": "1.4.0",
   "author": {
     "name": "Borja Aranda",
